@@ -1,4 +1,4 @@
-val apiBaseUrl = providers.gradleProperty("AVAX_API_BASE_URL").orElse("http://10.0.2.2:5079/")
+val apiBaseUrl = providers.gradleProperty("AVAX_API_BASE_URL").orElse("http://192.168.0.35:5079/")
 
 plugins {
     alias(libs.plugins.android.application)

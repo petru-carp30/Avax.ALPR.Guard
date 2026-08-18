@@ -38,6 +38,7 @@ import androidx.core.content.ContextCompat
 import com.avax.alpr.guard.domain.model.AccessArea
 import com.avax.alpr.guard.domain.model.AccessDecision
 import com.avax.alpr.guard.domain.model.AccessDecisionStatus
+import com.avax.alpr.guard.data.local.AccessLogSyncState
 
 @Composable
 fun GuardScreen(
@@ -105,6 +106,18 @@ fun GuardScreen(
             uiState.accessDecision?.let { decision ->
                 AccessResultCard(decision)
             }
+
+            uiState.localLogMessage?.let { message ->
+                Text(
+                    text = message,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+
+            RecentAccessLogsCard(
+                accessLogs = uiState.recentAccessLogs
+            )
         }
     }
 }
@@ -196,6 +209,73 @@ private fun CacheCard(
                     text = it,
                     style = MaterialTheme.typography.bodySmall
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun RecentAccessLogsCard(
+    accessLogs: List<RecentAccessLogUiItem>
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                text = "Recent Local Access Events",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+
+            if (accessLogs.isEmpty()) {
+                Text(
+                    text = "No local access events yet.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            } else {
+                accessLogs.forEachIndexed { index, accessLog ->
+
+                    Column(
+                        verticalArrangement =
+                            Arrangement.spacedBy(3.dp)
+                    ) {
+                        Text(
+                            text = accessLog.licensePlate,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 18.sp
+                        )
+
+                        Text(
+                            "Time (UTC): ${accessLog.eventTimestampUtc}"
+                        )
+
+                        Text(
+                            "Area: ${accessLog.accessArea.displayName()}"
+                        )
+
+                        Text(
+                            text =
+                                "Result: ${accessLog.decisionStatus.displayName()}",
+                            color =
+                                accessLog.decisionStatus.statusColor(),
+                            fontWeight = FontWeight.SemiBold
+                        )
+
+                        Text(
+                            "Sync: ${accessLog.syncState.displayName()}"
+                        )
+                    }
+
+                    if (index < accessLogs.lastIndex) {
+                        Spacer(
+                            modifier = Modifier.height(8.dp)
+                        )
+                    }
+                }
             }
         }
     }
@@ -314,5 +394,12 @@ private fun AccessDecisionStatus.statusColor(): Color {
         AccessDecisionStatus.VehicleNotFound,
         AccessDecisionStatus.InvalidInput,
         AccessDecisionStatus.DataUnavailable -> Color(0xFFF9A825)
+    }
+}
+
+private fun AccessLogSyncState.displayName(): String {
+    return when (this) {
+        AccessLogSyncState.Pending -> "PENDING"
+        AccessLogSyncState.Synced -> "SYNCED"
     }
 }

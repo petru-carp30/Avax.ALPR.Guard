@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import com.avax.alpr.guard.data.local.AccessLogPersistenceStatus
 
 class GuardViewModel(
     private val vehicleAccessRepository: VehicleAccessRepository,
@@ -23,19 +24,22 @@ class GuardViewModel(
 
     init {
         observeSyncMetadata()
+        observeRecentAccessLogs()
     }
 
     fun onPlateChanged(value: String) {
         _uiState.value = _uiState.value.copy(
             plateInput = value,
-            accessDecision = null
+            accessDecision = null,
+            localLogMessage = null
         )
     }
 
     fun onAreaSelected(area: AccessArea) {
         _uiState.value = _uiState.value.copy(
             selectedArea = area,
-            accessDecision = null
+            accessDecision = null,
+            localLogMessage = null
         )
     }
 
@@ -46,17 +50,32 @@ class GuardViewModel(
         val area = _uiState.value.selectedArea
 
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isVerifying = true)
+            _uiState.value = _uiState.value.copy(
+                isVerifying = true,
+                localLogMessage = null
+            )
 
             try {
-                val decision = vehicleAccessRepository.verify(
-                    inputPlate = plate,
-                    requestedArea = area
-                )
+                val verification =
+                    vehicleAccessRepository.verify(
+                        inputPlate = plate,
+                        requestedArea = area
+                    )
+
+                val logMessage =
+                    if (
+                        verification.logPersistenceStatus ==
+                        AccessLogPersistenceStatus.Failed
+                    ) {
+                        "Access decision completed, but the local access event could not be saved."
+                    } else {
+                        null
+                    }
 
                 _uiState.value = _uiState.value.copy(
-                    accessDecision = decision,
-                    isVerifying = false
+                    accessDecision = verification.decision,
+                    isVerifying = false,
+                    localLogMessage = logMessage
                 )
             } catch (exception: CancellationException) {
                 throw exception
@@ -109,6 +128,32 @@ class GuardViewModel(
                     importedAtUtc = metadata?.importedAtUtc
                 )
             }
+        }
+    }
+
+    private fun observeRecentAccessLogs() {
+        viewModelScope.launch {
+            vehicleAccessRepository
+                .observeRecentAccessLogs()
+                .collect { accessLogs ->
+
+                    val recentLogs = accessLogs.map { accessLog ->
+                        RecentAccessLogUiItem(
+                            localLogId = accessLog.localLogId,
+                            eventTimestampUtc = accessLog.eventTimestampUtc,
+                            licensePlate =
+                                accessLog.normalizedLicensePlate
+                                    ?: accessLog.inputLicensePlate,
+                            accessArea = accessLog.accessArea,
+                            decisionStatus = accessLog.decisionStatus,
+                            syncState = accessLog.syncState
+                        )
+                    }
+
+                    _uiState.value = _uiState.value.copy(
+                        recentAccessLogs = recentLogs
+                    )
+                }
         }
     }
 

@@ -1,6 +1,7 @@
 package com.avax.alpr.guard
 
 import android.content.Context
+import com.avax.alpr.guard.data.local.AccessLogStore
 import com.avax.alpr.guard.data.local.GuardDatabase
 import com.avax.alpr.guard.data.local.VehicleCacheStore
 import com.avax.alpr.guard.data.network.AndroidNetworkStatusProvider
@@ -14,7 +15,14 @@ class AppContainer(context: Context) {
 
     private val database = GuardDatabase.create(context)
 
-    private val vehicleSyncApi = NetworkClientFactory.createVehicleSyncApi(BuildConfig.API_BASE_URL)
+    private val vehicleSyncApi =
+        NetworkClientFactory.createVehicleSyncApi(
+            BuildConfig.API_BASE_URL
+        )
+
+    val accessLogStore = AccessLogStore(
+        accessLogDao = database.accessLogDao()
+    )
 
     val vehicleSyncRepository = VehicleSyncRepository(
         api = vehicleSyncApi,
@@ -26,6 +34,7 @@ class AppContainer(context: Context) {
     val vehicleAccessRepository = VehicleAccessRepository(
         vehicleDao = database.vehicleDao(),
         syncMetadataDao = database.syncMetadataDao(),
-        accessChecker = AccessChecker()
+        accessChecker = AccessChecker(),
+        accessLogStore = accessLogStore
     )
 }

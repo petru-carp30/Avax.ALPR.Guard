@@ -1,13 +1,21 @@
 package com.avax.alpr.guard.data.network
 
+import java.util.concurrent.TimeUnit
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
-import java.util.concurrent.TimeUnit
 
 object NetworkClientFactory {
 
     fun createVehicleSyncApi(baseUrl: String): VehicleSyncApi {
+        return createRetrofit(baseUrl).create(VehicleSyncApi::class.java)
+    }
+
+    fun createAccessLogApi(baseUrl: String): AccessLogApi {
+        return createRetrofit(baseUrl).create(AccessLogApi::class.java)
+    }
+
+    private fun createRetrofit(baseUrl: String): Retrofit {
         require(baseUrl.endsWith("/")) { "API base URL must end with '/'." }
 
         val client = OkHttpClient.Builder()
@@ -22,6 +30,5 @@ object NetworkClientFactory {
             .client(client)
             .addConverterFactory(GsonConverterFactory.create())
             .build()
-            .create(VehicleSyncApi::class.java)
     }
 }

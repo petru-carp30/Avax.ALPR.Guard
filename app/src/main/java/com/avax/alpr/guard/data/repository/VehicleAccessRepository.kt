@@ -10,12 +10,15 @@ import com.avax.alpr.guard.domain.model.AccessArea
 import com.avax.alpr.guard.domain.model.ValidityWindow
 import com.avax.alpr.guard.domain.model.VehicleRecord
 import java.time.LocalDateTime
+import com.avax.alpr.guard.background.AccessLogUploadScheduler
+import com.avax.alpr.guard.data.local.AccessLogPersistenceStatus
 
 class VehicleAccessRepository(
     private val vehicleDao: VehicleDao,
     private val syncMetadataDao: SyncMetadataDao,
     private val accessChecker: AccessChecker,
-    private val accessLogStore: AccessLogStore
+    private val accessLogStore: AccessLogStore,
+    private val accessLogUploadScheduler: AccessLogUploadScheduler
 ) {
 
     fun observeSyncMetadata() = syncMetadataDao.observe()
@@ -60,11 +63,16 @@ class VehicleAccessRepository(
             )
         }
 
-        val logPersistenceStatus =
-            accessLogStore.recordIfRequired(
-                inputPlate = inputPlate,
-                decision = decision
-            )
+        val logPersistenceStatus = accessLogStore.recordIfRequired(
+            inputPlate = inputPlate,
+            decision = decision
+        )
+
+        if (logPersistenceStatus == AccessLogPersistenceStatus.Persisted) {
+            runCatching {
+                accessLogUploadScheduler.scheduleAfterLocalLog()
+            }
+        }
 
         return LocalAccessVerificationResult(
             decision = decision,

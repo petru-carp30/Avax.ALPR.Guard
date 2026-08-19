@@ -1,11 +1,13 @@
 package com.avax.alpr.guard
 
 import android.content.Context
+import com.avax.alpr.guard.background.AccessLogUploadScheduler
 import com.avax.alpr.guard.data.local.AccessLogStore
 import com.avax.alpr.guard.data.local.GuardDatabase
 import com.avax.alpr.guard.data.local.VehicleCacheStore
 import com.avax.alpr.guard.data.network.AndroidNetworkStatusProvider
 import com.avax.alpr.guard.data.network.NetworkClientFactory
+import com.avax.alpr.guard.data.repository.AccessLogUploadRepository
 import com.avax.alpr.guard.data.repository.SnapshotValidator
 import com.avax.alpr.guard.data.repository.VehicleAccessRepository
 import com.avax.alpr.guard.data.repository.VehicleSyncRepository
@@ -15,14 +17,19 @@ class AppContainer(context: Context) {
 
     private val database = GuardDatabase.create(context)
 
-    private val vehicleSyncApi =
-        NetworkClientFactory.createVehicleSyncApi(
-            BuildConfig.API_BASE_URL
-        )
+    private val vehicleSyncApi = NetworkClientFactory.createVehicleSyncApi(BuildConfig.API_BASE_URL)
+    private val accessLogApi = NetworkClientFactory.createAccessLogApi(BuildConfig.API_BASE_URL)
 
     val accessLogStore = AccessLogStore(
         accessLogDao = database.accessLogDao()
     )
+
+    val accessLogUploadRepository = AccessLogUploadRepository(
+        api = accessLogApi,
+        accessLogDao = database.accessLogDao()
+    )
+
+    val accessLogUploadScheduler = AccessLogUploadScheduler(context)
 
     val vehicleSyncRepository = VehicleSyncRepository(
         api = vehicleSyncApi,
@@ -35,6 +42,7 @@ class AppContainer(context: Context) {
         vehicleDao = database.vehicleDao(),
         syncMetadataDao = database.syncMetadataDao(),
         accessChecker = AccessChecker(),
-        accessLogStore = accessLogStore
+        accessLogStore = accessLogStore,
+        accessLogUploadScheduler = accessLogUploadScheduler
     )
 }

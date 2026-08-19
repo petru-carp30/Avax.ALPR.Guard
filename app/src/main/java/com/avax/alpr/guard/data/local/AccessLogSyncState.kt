@@ -2,5 +2,7 @@ package com.avax.alpr.guard.data.local
 
 enum class AccessLogSyncState {
     Pending,
-    Synced
+    Synced,
+    Conflict,
+    Rejected
 }

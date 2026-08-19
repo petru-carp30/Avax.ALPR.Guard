@@ -401,5 +401,7 @@ private fun AccessLogSyncState.displayName(): String {
     return when (this) {
         AccessLogSyncState.Pending -> "PENDING"
         AccessLogSyncState.Synced -> "SYNCED"
+        AccessLogSyncState.Conflict -> "CONFLICT"
+        AccessLogSyncState.Rejected -> "REJECTED"
     }
 }

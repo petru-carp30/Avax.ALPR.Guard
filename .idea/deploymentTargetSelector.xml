@@ -6,19 +6,11 @@
         <option name="selectionMode" value="DROPDOWN" />
         <DialogSelection />
       </SelectionState>
+      <SelectionState runConfigName="Tests in 'com.avax.alpr.guard'">
+        <option name="selectionMode" value="DROPDOWN" />
+        <DialogSelection />
+      </SelectionState>
       <SelectionState runConfigName="MainActivity">
-        <option name="selectionMode" value="DROPDOWN" />
-        <DialogSelection />
-      </SelectionState>
-      <SelectionState runConfigName="grantedDecisionIsPersisted()">
-        <option name="selectionMode" value="DROPDOWN" />
-        <DialogSelection />
-      </SelectionState>
-      <SelectionState runConfigName="AccessLogStoreTest">
-        <option name="selectionMode" value="DROPDOWN" />
-        <DialogSelection />
-      </SelectionState>
-      <SelectionState runConfigName="GuardDatabaseMigrationTest">
         <option name="selectionMode" value="DROPDOWN" />
         <DialogSelection />
       </SelectionState>

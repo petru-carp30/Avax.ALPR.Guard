@@ -39,6 +39,8 @@ import com.avax.alpr.guard.domain.model.AccessArea
 import com.avax.alpr.guard.domain.model.AccessDecision
 import com.avax.alpr.guard.domain.model.AccessDecisionStatus
 import com.avax.alpr.guard.data.local.AccessLogSyncState
+import com.avax.alpr.guard.ui.camera.CameraPreviewCard
+
 
 @Composable
 fun GuardScreen(
@@ -62,6 +64,8 @@ fun GuardScreen(
                 fontSize = 28.sp,
                 fontWeight = FontWeight.Bold
             )
+
+            CameraPreviewCard()
 
             CacheCard(
                 uiState = uiState,

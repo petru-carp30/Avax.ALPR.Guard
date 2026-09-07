@@ -45,7 +45,10 @@ import com.avax.alpr.guard.camera.CameraPermissionState
 import com.avax.alpr.guard.camera.CameraPermissionStateResolver
 import com.avax.alpr.guard.camera.CameraRuntimeState
 import com.avax.alpr.guard.camera.CameraSession
-import com.avax.alpr.guard.camera.DevelopmentFrameProcessor
+import com.avax.alpr.guard.ai.detector.OnnxPlateDetector
+import com.avax.alpr.guard.camera.DetectorRuntimeState
+import com.avax.alpr.guard.camera.PlateDetectorFrameProcessor
+import java.util.Locale
 
 @Composable
 fun CameraPreviewCard(modifier: Modifier = Modifier) {
@@ -135,7 +138,15 @@ fun CameraPreviewCard(modifier: Modifier = Modifier) {
 private fun CameraPreviewContent() {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    val frameProcessor = remember { DevelopmentFrameProcessor() }
+
+    val detector = remember { OnnxPlateDetector(context.applicationContext) }
+    val frameProcessor = remember(detector) {
+        PlateDetectorFrameProcessor(
+            detector = detector,
+            minInferenceIntervalMs = 0L
+        )
+    }
+
     val diagnostics by frameProcessor.diagnostics.collectAsStateWithLifecycle()
 
     var cameraState by remember { mutableStateOf<CameraRuntimeState>(CameraRuntimeState.Starting) }
@@ -151,7 +162,7 @@ private fun CameraPreviewContent() {
         CameraSession(context.applicationContext)
     }
 
-    DisposableEffect(cameraSession, previewView, lifecycleOwner) {
+    DisposableEffect(cameraSession, previewView, lifecycleOwner, detector) {
         cameraSession.bind(
             previewView = previewView,
             lifecycleOwner = lifecycleOwner,
@@ -161,6 +172,7 @@ private fun CameraPreviewContent() {
 
         onDispose {
             cameraSession.close()
+            detector.close()
         }
     }
 
@@ -172,6 +184,11 @@ private fun CameraPreviewContent() {
         ) {
             AndroidView(
                 factory = { previewView },
+                modifier = Modifier.fillMaxSize()
+            )
+            DetectorOverlay(
+                detections = diagnostics.lastDetections,
+                frameMetadata = diagnostics.frameMetadata,
                 modifier = Modifier.fillMaxSize()
             )
 
@@ -195,13 +212,53 @@ private fun CameraPreviewContent() {
             style = MaterialTheme.typography.bodySmall
         )
 
-        diagnostics?.let { diagnostic ->
+        Text(
+            text = "Detector: ${diagnostics.runtimeState.displayName()}",
+            style = MaterialTheme.typography.bodySmall
+        )
+
+        diagnostics.modelLoadTimeMs?.let {
             Text(
-                text = "Frames analyzed: ${diagnostic.frameCount} | Resolution: ${diagnostic.metadata.width}x${diagnostic.metadata.height} | Rotation: ${diagnostic.metadata.rotationDegrees}°",
+                text = "Model load: ${formatMilliseconds(it)} ms",
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+
+        diagnostics.inferenceTimeMs?.let { inference ->
+            Text(
+                text = "Detections: ${diagnostics.detectionCount} | Inference: ${formatMilliseconds(inference)} ms | Total: ${formatMilliseconds(diagnostics.totalProcessingTimeMs ?: 0.0)} ms",
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+
+        diagnostics.cadenceFps?.let {
+            Text(
+                text = "Detector cadence: ${String.format(Locale.US, "%.1f", it)} fps",
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+
+        val detectorState = diagnostics.runtimeState
+
+        if (detectorState is DetectorRuntimeState.Unavailable) {
+            Text(
+                text = "Detector unavailable: ${detectorState.reason}. Manual verification remains available.",
                 style = MaterialTheme.typography.bodySmall
             )
         }
     }
+}
+
+private fun DetectorRuntimeState.displayName(): String {
+    return when (this) {
+        DetectorRuntimeState.WaitingForFirstFrame -> "LOADING"
+        DetectorRuntimeState.Ready -> "READY"
+        is DetectorRuntimeState.Unavailable -> "UNAVAILABLE"
+    }
+}
+
+private fun formatMilliseconds(value: Double): String {
+    return String.format(Locale.US, "%.1f", value)
 }
 
 private fun CameraRuntimeState.displayName(): String {

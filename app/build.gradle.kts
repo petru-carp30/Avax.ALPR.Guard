@@ -59,6 +59,7 @@ dependencies {
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.view)
     implementation(libs.androidx.monitor)
+    implementation(libs.onnxruntime.android)
 
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)

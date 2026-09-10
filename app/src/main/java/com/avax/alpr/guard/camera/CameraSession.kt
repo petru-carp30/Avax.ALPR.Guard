@@ -1,6 +1,7 @@
 package com.avax.alpr.guard.camera
 
 import android.content.Context
+import androidx.camera.core.Camera
 import android.util.Log
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
@@ -30,7 +31,8 @@ class CameraSession(context: Context) {
         previewView: PreviewView,
         lifecycleOwner: LifecycleOwner,
         frameProcessor: FrameProcessor,
-        onStateChanged: (CameraRuntimeState) -> Unit
+        onStateChanged: (CameraRuntimeState) -> Unit,
+        onCameraBound: (Camera) -> Unit = {}
     ) {
         if (closed || binding || previewUseCase != null || analysisUseCase != null) return
 
@@ -70,12 +72,14 @@ class CameraSession(context: Context) {
                 previewUseCase = preview
                 analysisUseCase = analysis
 
-                provider.bindToLifecycle(
+                val camera = provider.bindToLifecycle(
                     lifecycleOwner,
                     CameraSelector.DEFAULT_BACK_CAMERA,
                     preview,
                     analysis
                 )
+
+                onCameraBound(camera)
 
                 binding = false
                 onStateChanged(CameraRuntimeState.Active)

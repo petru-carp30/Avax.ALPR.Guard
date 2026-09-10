@@ -8,6 +8,15 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.Settings
+import android.view.MotionEvent
+import android.view.ScaleGestureDetector
+import androidx.camera.core.Camera
+import androidx.camera.core.ZoomState
+import androidx.compose.foundation.layout.Row
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.lifecycle.Observer
+import com.avax.alpr.guard.camera.CameraZoomMath
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.view.PreviewView
@@ -28,6 +37,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -151,6 +161,48 @@ private fun CameraPreviewContent() {
 
     var cameraState by remember { mutableStateOf<CameraRuntimeState>(CameraRuntimeState.Starting) }
 
+    var boundCamera by remember { mutableStateOf<Camera?>(null) }
+    var zoomRatio by remember { mutableFloatStateOf(1f) }
+    var minZoomRatio by remember { mutableFloatStateOf(1f) }
+    var maxZoomRatio by remember { mutableFloatStateOf(1f) }
+
+    fun requestZoom(requestedZoomRatio: Float) {
+        val camera = boundCamera ?: return
+        val state = camera.cameraInfo.zoomState.value ?: return
+
+        val safeZoom = CameraZoomMath.clampZoomRatio(
+            requested = requestedZoomRatio,
+            minZoomRatio = state.minZoomRatio,
+            maxZoomRatio = state.maxZoomRatio
+        ) ?: return
+
+        camera.cameraControl.setZoomRatio(safeZoom)
+    }
+
+    val currentCamera = rememberUpdatedState(boundCamera)
+
+    val scaleGestureDetector = remember(context) {
+        ScaleGestureDetector(
+            context,
+            object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+                override fun onScale(detector: ScaleGestureDetector): Boolean {
+                    val camera = currentCamera.value ?: return false
+                    val state = camera.cameraInfo.zoomState.value ?: return false
+
+                    val requestedZoom = CameraZoomMath.scaleZoomRatio(
+                        currentZoomRatio = state.zoomRatio,
+                        scaleFactor = detector.scaleFactor,
+                        minZoomRatio = state.minZoomRatio,
+                        maxZoomRatio = state.maxZoomRatio
+                    ) ?: return false
+
+                    camera.cameraControl.setZoomRatio(requestedZoom)
+                    return true
+                }
+            }
+        )
+    }
+
     val previewView = remember {
         PreviewView(context).apply {
             scaleType = PreviewView.ScaleType.FILL_CENTER
@@ -167,12 +219,52 @@ private fun CameraPreviewContent() {
             previewView = previewView,
             lifecycleOwner = lifecycleOwner,
             frameProcessor = frameProcessor,
-            onStateChanged = { cameraState = it }
+            onStateChanged = { cameraState = it },
+            onCameraBound = { boundCamera = it }
         )
 
         onDispose {
+            boundCamera = null
             cameraSession.close()
             detector.close()
+        }
+    }
+
+    DisposableEffect(boundCamera, lifecycleOwner) {
+        val camera = boundCamera
+
+        if (camera == null) {
+            onDispose { }
+        } else {
+            val observer = Observer<ZoomState> { state ->
+                if (state != null) {
+                    zoomRatio = state.zoomRatio
+                    minZoomRatio = state.minZoomRatio
+                    maxZoomRatio = state.maxZoomRatio
+                }
+            }
+
+            camera.cameraInfo.zoomState.observe(lifecycleOwner, observer)
+
+            onDispose {
+                camera.cameraInfo.zoomState.removeObserver(observer)
+            }
+        }
+    }
+
+    DisposableEffect(previewView, scaleGestureDetector) {
+        previewView.setOnTouchListener { view, event ->
+            scaleGestureDetector.onTouchEvent(event)
+
+            if (event.action == MotionEvent.ACTION_UP) {
+                view.performClick()
+            }
+
+            true
+        }
+
+        onDispose {
+            previewView.setOnTouchListener(null)
         }
     }
 
@@ -204,6 +296,32 @@ private fun CameraPreviewContent() {
                         modifier = Modifier.padding(16.dp)
                     )
                 }
+            }
+        }
+
+        if (maxZoomRatio > minZoomRatio) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                TextButton(
+                    onClick = { requestZoom(1f) }
+                ) {
+                    Text("1×")
+                }
+
+                androidx.compose.material3.Slider(
+                    value = zoomRatio.coerceIn(minZoomRatio, maxZoomRatio),
+                    onValueChange = { requestZoom(it) },
+                    valueRange = minZoomRatio..maxZoomRatio,
+                    modifier = Modifier.weight(1f)
+                )
+
+                Text(
+                    text = String.format(Locale.US, "%.1f×", zoomRatio),
+                    style = MaterialTheme.typography.bodyMedium
+                )
             }
         }
 

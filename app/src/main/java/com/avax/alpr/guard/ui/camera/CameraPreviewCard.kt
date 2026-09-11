@@ -63,6 +63,11 @@ import com.avax.alpr.guard.camera.CameraSession
 import com.avax.alpr.guard.camera.DetectorRuntimeState
 import com.avax.alpr.guard.camera.PlateDetectorFrameProcessor
 import com.avax.alpr.guard.domain.AutomaticScanRearmGate
+import android.view.GestureDetector
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableIntStateOf
+import com.avax.alpr.guard.camera.CameraFocusAssist
+import kotlinx.coroutines.delay
 import java.util.Locale
 
 @Composable
@@ -221,6 +226,16 @@ private fun CameraPreviewContent(
     var zoomRatio by remember { mutableFloatStateOf(1f) }
     var minZoomRatio by remember { mutableFloatStateOf(1f) }
     var maxZoomRatio by remember { mutableFloatStateOf(1f) }
+    var zoomFocusRequestVersion by remember { mutableIntStateOf(0) }
+    var tapFocusVersion by remember { mutableIntStateOf(0) }
+
+    val previewView = remember {
+        PreviewView(context).apply {
+            scaleType = PreviewView.ScaleType.FILL_CENTER
+            implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+            isClickable = true
+        }
+    }
 
     fun requestZoom(requestedZoomRatio: Float) {
         val camera = boundCamera ?: return
@@ -233,9 +248,25 @@ private fun CameraPreviewContent(
         ) ?: return
 
         camera.cameraControl.setZoomRatio(safeZoom)
+        zoomFocusRequestVersion++
     }
 
     val currentCamera = rememberUpdatedState(boundCamera)
+    val currentCameraState = rememberUpdatedState(cameraState)
+    val currentTapFocusVersion = rememberUpdatedState(tapFocusVersion)
+
+    LaunchedEffect(zoomFocusRequestVersion) {
+        if (zoomFocusRequestVersion == 0) return@LaunchedEffect
+
+        val tapVersionAtSchedule = currentTapFocusVersion.value
+        delay(350L)
+
+        if (tapVersionAtSchedule != currentTapFocusVersion.value) return@LaunchedEffect
+        if (currentCameraState.value != CameraRuntimeState.Active) return@LaunchedEffect
+
+        val camera = currentCamera.value ?: return@LaunchedEffect
+        CameraFocusAssist.requestCenterFocus(camera, previewView)
+    }
 
     val scaleGestureDetector = remember(context) {
         ScaleGestureDetector(
@@ -253,17 +284,36 @@ private fun CameraPreviewContent(
                     ) ?: return false
 
                     camera.cameraControl.setZoomRatio(requestedZoom)
+                    zoomFocusRequestVersion++
                     return true
                 }
             }
         )
     }
 
-    val previewView = remember {
-        PreviewView(context).apply {
-            scaleType = PreviewView.ScaleType.FILL_CENTER
-            implementationMode = PreviewView.ImplementationMode.COMPATIBLE
-        }
+    val tapGestureDetector = remember(context, previewView) {
+        GestureDetector(
+            context,
+            object : GestureDetector.SimpleOnGestureListener() {
+                override fun onDown(event: MotionEvent): Boolean = true
+
+                override fun onSingleTapUp(event: MotionEvent): Boolean {
+                    previewView.performClick()
+                    tapFocusVersion++
+
+                    val camera = currentCamera.value ?: return true
+
+                    CameraFocusAssist.requestFocus(
+                        camera = camera,
+                        previewView = previewView,
+                        x = event.x,
+                        y = event.y
+                    )
+
+                    return true
+                }
+            }
+        )
     }
 
     val cameraSession = remember {
@@ -309,14 +359,10 @@ private fun CameraPreviewContent(
         }
     }
 
-    DisposableEffect(previewView, scaleGestureDetector) {
-        previewView.setOnTouchListener { view, event ->
+    DisposableEffect(previewView, scaleGestureDetector, tapGestureDetector) {
+        previewView.setOnTouchListener { _, event ->
             scaleGestureDetector.onTouchEvent(event)
-
-            if (event.action == MotionEvent.ACTION_UP) {
-                view.performClick()
-            }
-
+            tapGestureDetector.onTouchEvent(event)
             true
         }
 

@@ -43,6 +43,8 @@ class MainActivity : ComponentActivity() {
                         onAreaSelected = guardViewModel::onAreaSelected,
                         onVerify = guardViewModel::verifyLocally,
                         onSynchronize = guardViewModel::synchronizeVehicles,
+                        onAutomaticRecognition = guardViewModel::onAutomaticPlateRecognized,
+                        onAutomaticOcrFailure = guardViewModel::onAutomaticOcrFailure,
                         modifier = Modifier.padding(innerPadding)
                     )
                 }

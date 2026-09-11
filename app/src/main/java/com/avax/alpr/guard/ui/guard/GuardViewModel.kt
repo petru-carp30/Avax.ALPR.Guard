@@ -1,5 +1,8 @@
 package com.avax.alpr.guard.ui.guard
 
+import android.os.SystemClock
+import com.avax.alpr.guard.ai.ocr.AutomaticPlateRecognition
+import com.avax.alpr.guard.domain.PlateNormalizer
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -22,6 +25,8 @@ class GuardViewModel(
     private val _uiState = MutableStateFlow(GuardUiState())
     val uiState: StateFlow<GuardUiState> = _uiState.asStateFlow()
 
+    private val automaticVerificationCooldown = AutomaticVerificationCooldown()
+
     init {
         observeSyncMetadata()
         observeRecentAccessLogs()
@@ -39,6 +44,10 @@ class GuardViewModel(
         _uiState.value = _uiState.value.copy(
             selectedArea = area,
             accessDecision = null,
+            automaticRecognition = _uiState.value.automaticRecognition.copy(
+                accessDecision = null,
+                message = null
+            ),
             localLogMessage = null
         )
     }
@@ -154,6 +163,114 @@ class GuardViewModel(
                         recentAccessLogs = recentLogs
                     )
                 }
+        }
+    }
+
+    fun onAutomaticPlateRecognized(recognition: AutomaticPlateRecognition) {
+        viewModelScope.launch {
+            val ocrResult = recognition.ocrResult
+            val normalizedPlate = PlateNormalizer.normalize(ocrResult.text)
+
+            if (normalizedPlate.isBlank()) {
+                _uiState.value = _uiState.value.copy(
+                    automaticRecognition = AutomaticRecognitionUiState(
+                        ocrText = ocrResult.text,
+                        detectorConfidence = recognition.detectorConfidence,
+                        ocrConfidence = ocrResult.confidence,
+                        ocrLatencyMs = ocrResult.latencyMs,
+                        message = "OCR result is not usable for local verification."
+                    )
+                )
+                return@launch
+            }
+
+            if (_uiState.value.automaticRecognition.isVerifying) return@launch
+
+            val nowMs = SystemClock.elapsedRealtime()
+
+            if (automaticVerificationCooldown.shouldSuppress(normalizedPlate, nowMs)) {
+                _uiState.value = _uiState.value.copy(
+                    automaticRecognition = _uiState.value.automaticRecognition.copy(
+                        ocrText = ocrResult.text,
+                        normalizedPlate = normalizedPlate,
+                        detectorConfidence = recognition.detectorConfidence,
+                        ocrConfidence = ocrResult.confidence,
+                        ocrLatencyMs = ocrResult.latencyMs,
+                        message = "Duplicate automatic verification suppressed."
+                    )
+                )
+                return@launch
+            }
+
+            val area = _uiState.value.selectedArea
+
+            _uiState.value = _uiState.value.copy(
+                automaticRecognition = AutomaticRecognitionUiState(
+                    ocrText = ocrResult.text,
+                    normalizedPlate = normalizedPlate,
+                    detectorConfidence = recognition.detectorConfidence,
+                    ocrConfidence = ocrResult.confidence,
+                    ocrLatencyMs = ocrResult.latencyMs,
+                    isVerifying = true
+                )
+            )
+
+            try {
+                val verification = vehicleAccessRepository.verify(
+                    inputPlate = ocrResult.text,
+                    requestedArea = area
+                )
+
+                if (verification.logPersistenceStatus == AccessLogPersistenceStatus.Persisted) {
+                    automaticVerificationCooldown.mark(
+                        normalizedPlate = normalizedPlate,
+                        nowMs = SystemClock.elapsedRealtime()
+                    )
+                }
+
+                val message = when (verification.logPersistenceStatus) {
+                    AccessLogPersistenceStatus.Failed -> "Access result completed, but the local access event could not be saved."
+                    else -> null
+                }
+
+                _uiState.value = _uiState.value.copy(
+                    automaticRecognition = AutomaticRecognitionUiState(
+                        ocrText = ocrResult.text,
+                        normalizedPlate = normalizedPlate,
+                        detectorConfidence = recognition.detectorConfidence,
+                        ocrConfidence = ocrResult.confidence,
+                        ocrLatencyMs = ocrResult.latencyMs,
+                        accessDecision = verification.decision,
+                        isVerifying = false,
+                        message = message
+                    )
+                )
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (_: Exception) {
+                _uiState.value = _uiState.value.copy(
+                    automaticRecognition = AutomaticRecognitionUiState(
+                        ocrText = ocrResult.text,
+                        normalizedPlate = normalizedPlate,
+                        detectorConfidence = recognition.detectorConfidence,
+                        ocrConfidence = ocrResult.confidence,
+                        ocrLatencyMs = ocrResult.latencyMs,
+                        message = "Automatic local verification failed."
+                    )
+                )
+            }
+        }
+    }
+
+    fun onAutomaticOcrFailure(message: String) {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(
+                automaticRecognition = _uiState.value.automaticRecognition.copy(
+                    accessDecision = null,
+                    isVerifying = false,
+                    message = message
+                )
+            )
         }
     }
 

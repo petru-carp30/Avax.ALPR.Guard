@@ -31,7 +31,8 @@ data class DetectorFrameDiagnostics(
 
 class PlateDetectorFrameProcessor(
     private val detector: PlateDetector,
-    private val minInferenceIntervalMs: Long = 0L
+    private val minInferenceIntervalMs: Long = 0L,
+    private val onDetections: (CameraFrame, List<PlateDetection>) -> Unit = { _, _ -> }
 ) : FrameProcessor {
 
     private val frameCounter = AtomicLong(0)
@@ -100,6 +101,10 @@ class PlateDetectorFrameProcessor(
                 lastDetections = result.detections,
                 frameMetadata = frame.metadata
             )
+            try {
+                onDetections(frame, result.detections)
+            } catch (_: Exception) {
+            }
         } catch (exception: Exception) {
             disabled = true
 

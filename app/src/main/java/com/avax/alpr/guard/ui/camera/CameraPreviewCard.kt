@@ -7,6 +7,7 @@ import android.content.ContextWrapper
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.SystemClock
 import android.provider.Settings
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
@@ -51,17 +52,25 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.avax.alpr.guard.ai.detector.OnnxPlateDetector
+import com.avax.alpr.guard.ai.ocr.AutomaticPlateOcrProcessor
+import com.avax.alpr.guard.ai.ocr.AutomaticPlateRecognition
+import com.avax.alpr.guard.ai.ocr.MlKitPlateOcr
 import com.avax.alpr.guard.camera.CameraPermissionState
 import com.avax.alpr.guard.camera.CameraPermissionStateResolver
 import com.avax.alpr.guard.camera.CameraRuntimeState
 import com.avax.alpr.guard.camera.CameraSession
-import com.avax.alpr.guard.ai.detector.OnnxPlateDetector
 import com.avax.alpr.guard.camera.DetectorRuntimeState
 import com.avax.alpr.guard.camera.PlateDetectorFrameProcessor
+import com.avax.alpr.guard.domain.AutomaticScanRearmGate
 import java.util.Locale
 
 @Composable
-fun CameraPreviewCard(modifier: Modifier = Modifier) {
+fun CameraPreviewCard(
+    onAutomaticRecognition: (AutomaticPlateRecognition) -> Unit,
+    onAutomaticOcrFailure: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
     val context = LocalContext.current
     val activity = context.findActivity()
     var hasRequestedPermission by rememberSaveable { mutableStateOf(false) }
@@ -83,7 +92,7 @@ fun CameraPreviewCard(modifier: Modifier = Modifier) {
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
+    ) {
         hasRequestedPermission = true
         permissionState = resolvePermissionState()
     }
@@ -115,7 +124,10 @@ fun CameraPreviewCard(modifier: Modifier = Modifier) {
                 }
 
                 CameraPermissionState.Granted -> {
-                    CameraPreviewContent()
+                    CameraPreviewContent(
+                        onAutomaticRecognition = onAutomaticRecognition,
+                        onAutomaticOcrFailure = onAutomaticOcrFailure
+                    )
                 }
 
                 CameraPermissionState.Denied -> {
@@ -145,19 +157,63 @@ fun CameraPreviewCard(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun CameraPreviewContent() {
+private fun CameraPreviewContent(
+    onAutomaticRecognition: (AutomaticPlateRecognition) -> Unit,
+    onAutomaticOcrFailure: (String) -> Unit
+) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
+    val currentOnAutomaticRecognition by rememberUpdatedState(onAutomaticRecognition)
+    val currentOnAutomaticOcrFailure by rememberUpdatedState(onAutomaticOcrFailure)
+
     val detector = remember { OnnxPlateDetector(context.applicationContext) }
-    val frameProcessor = remember(detector) {
+    val plateOcr = remember { MlKitPlateOcr() }
+
+    val automaticScanRearmGate = remember {
+        AutomaticScanRearmGate(
+            rearmDelayMs = 1_500L,
+            clockMs = { SystemClock.elapsedRealtime() }
+        )
+    }
+
+    val automaticOcrProcessor = remember(plateOcr, automaticScanRearmGate) {
+        AutomaticPlateOcrProcessor(
+            plateOcr = plateOcr,
+            onRecognition = { recognition ->
+                if (automaticScanRearmGate.tryAcquireAutomaticVerification()) {
+                    currentOnAutomaticRecognition(recognition)
+                }
+            },
+            onFailure = { message ->
+                currentOnAutomaticOcrFailure(message)
+            }
+        )
+    }
+
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        automaticScanRearmGate.reset()
+        automaticOcrProcessor.resetConfirmation()
+    }
+
+    val frameProcessor = remember(detector, automaticOcrProcessor, automaticScanRearmGate) {
         PlateDetectorFrameProcessor(
             detector = detector,
-            minInferenceIntervalMs = 0L
+            minInferenceIntervalMs = 0L,
+            onDetections = { frame, detections ->
+                automaticScanRearmGate.onDetectorResult(
+                    hasPlateDetection = detections.isNotEmpty()
+                )
+
+                if (!automaticScanRearmGate.isLocked()) {
+                    automaticOcrProcessor.process(frame, detections)
+                }
+            }
         )
     }
 
     val diagnostics by frameProcessor.diagnostics.collectAsStateWithLifecycle()
+    val ocrDiagnostics by automaticOcrProcessor.diagnostics.collectAsStateWithLifecycle()
 
     var cameraState by remember { mutableStateOf<CameraRuntimeState>(CameraRuntimeState.Starting) }
 
@@ -226,6 +282,7 @@ private fun CameraPreviewContent() {
         onDispose {
             boundCamera = null
             cameraSession.close()
+            automaticOcrProcessor.close()
             detector.close()
         }
     }
@@ -278,6 +335,7 @@ private fun CameraPreviewContent() {
                 factory = { previewView },
                 modifier = Modifier.fillMaxSize()
             )
+
             DetectorOverlay(
                 detections = diagnostics.lastDetections,
                 frameMetadata = diagnostics.frameMetadata,
@@ -352,6 +410,62 @@ private fun CameraPreviewContent() {
         diagnostics.cadenceFps?.let {
             Text(
                 text = "Detector cadence: ${String.format(Locale.US, "%.1f", it)} fps",
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+
+        ocrDiagnostics.recognizedText?.let { text ->
+            Text(
+                text = "OCR plate: $text",
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+
+        ocrDiagnostics.ocrLatencyMs?.let { latency ->
+            Text(
+                text = "OCR latency: ${formatMilliseconds(latency)} ms",
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+
+        ocrDiagnostics.detectorConfidence?.let { confidence ->
+            Text(
+                text = "Detector confidence: ${String.format(Locale.US, "%.3f", confidence)}",
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+
+        ocrDiagnostics.ocrConfidence?.let { confidence ->
+            Text(
+                text = "OCR confidence: ${String.format(Locale.US, "%.3f", confidence)}",
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+
+        if (ocrDiagnostics.detectorBoxWidth != null && ocrDiagnostics.detectorBoxHeight != null) {
+            Text(
+                text = "Detector bbox: ${ocrDiagnostics.detectorBoxWidth} x ${ocrDiagnostics.detectorBoxHeight} px",
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+
+        if (ocrDiagnostics.cropWidth != null && ocrDiagnostics.cropHeight != null) {
+            Text(
+                text = "Crop: ${ocrDiagnostics.cropWidth} x ${ocrDiagnostics.cropHeight} px | Padding: 8%",
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+
+        if (ocrDiagnostics.ocrInputWidth != null && ocrDiagnostics.ocrInputHeight != null) {
+            Text(
+                text = "OCR input: ${ocrDiagnostics.ocrInputWidth} x ${ocrDiagnostics.ocrInputHeight} px | Upscaled: ${if (ocrDiagnostics.wasUpscaled == true) "YES" else "NO"}",
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+
+        ocrDiagnostics.message?.let { message ->
+            Text(
+                text = "OCR: $message",
                 style = MaterialTheme.typography.bodySmall
             )
         }

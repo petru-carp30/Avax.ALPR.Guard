@@ -9,6 +9,7 @@ data class GuardUiState(
     val plateInput: String = "",
     val selectedArea: AccessArea = AccessArea.Site,
     val accessDecision: AccessDecision? = null,
+    val automaticRecognition: AutomaticRecognitionUiState = AutomaticRecognitionUiState(),
     val isVerifying: Boolean = false,
     val isSyncing: Boolean = false,
     val hasLocalSnapshot: Boolean = false,
@@ -18,6 +19,17 @@ data class GuardUiState(
     val syncMessage: String? = null,
     val localLogMessage: String? = null,
     val recentAccessLogs: List<RecentAccessLogUiItem> = emptyList()
+)
+
+data class AutomaticRecognitionUiState(
+    val ocrText: String? = null,
+    val normalizedPlate: String? = null,
+    val detectorConfidence: Float? = null,
+    val ocrConfidence: Float? = null,
+    val ocrLatencyMs: Double? = null,
+    val accessDecision: AccessDecision? = null,
+    val isVerifying: Boolean = false,
+    val message: String? = null
 )
 
 data class RecentAccessLogUiItem(

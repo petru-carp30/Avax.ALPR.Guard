@@ -8,6 +8,13 @@ plugins {
 
 android {
     namespace = "com.avax.alpr.guard"
+
+    sourceSets {
+        getByName("androidTest") {
+            assets.srcDir("src/androidTest/assets")
+        }
+    }
+
     compileSdk {
         version = release(37)
     }
@@ -81,4 +88,5 @@ dependencies {
 
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     debugImplementation(libs.androidx.compose.ui.tooling)
+    debugImplementation("com.google.mlkit:text-recognition:16.0.1")
 }

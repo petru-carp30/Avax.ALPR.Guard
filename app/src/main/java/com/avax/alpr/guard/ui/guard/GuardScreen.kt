@@ -40,6 +40,8 @@ import com.avax.alpr.guard.domain.model.AccessDecision
 import com.avax.alpr.guard.domain.model.AccessDecisionStatus
 import com.avax.alpr.guard.data.local.AccessLogSyncState
 import com.avax.alpr.guard.ui.camera.CameraPreviewCard
+import com.avax.alpr.guard.ai.ocr.AutomaticPlateRecognition
+import java.util.Locale
 
 
 @Composable
@@ -49,6 +51,8 @@ fun GuardScreen(
     onAreaSelected: (AccessArea) -> Unit,
     onVerify: () -> Unit,
     onSynchronize: () -> Unit,
+    onAutomaticRecognition: (AutomaticPlateRecognition) -> Unit,
+    onAutomaticOcrFailure: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     Surface(modifier = modifier.fillMaxSize()) {
@@ -65,7 +69,11 @@ fun GuardScreen(
                 fontWeight = FontWeight.Bold
             )
 
-            CameraPreviewCard()
+            CameraPreviewCard(
+                onAutomaticRecognition = onAutomaticRecognition,
+                onAutomaticOcrFailure = onAutomaticOcrFailure
+            )
+            AutomaticRecognitionCard(uiState.automaticRecognition)
 
             CacheCard(
                 uiState = uiState,
@@ -363,6 +371,66 @@ private fun AccessResultCard(decision: AccessDecision) {
                 vehicle.accessNotes?.takeIf { it.isNotBlank() }?.let {
                     Text("Notes: $it")
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AutomaticRecognitionCard(state: AutomaticRecognitionUiState) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(
+                text = "Automatic Recognition",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+
+            if (state.ocrText == null && state.accessDecision == null && !state.isVerifying) {
+                Text("Waiting for a license plate...")
+            }
+
+            state.ocrText?.let {
+                Text("OCR: $it")
+            }
+
+            state.normalizedPlate?.let {
+                Text(
+                    text = "Normalized: $it",
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+
+            state.detectorConfidence?.let {
+                Text("Detector confidence: ${String.format(Locale.US, "%.3f", it)}")
+            }
+
+            state.ocrConfidence?.let {
+                Text("OCR confidence: ${String.format(Locale.US, "%.3f", it)}")
+            }
+
+            state.ocrLatencyMs?.let {
+                Text("OCR latency: ${String.format(Locale.US, "%.1f", it)} ms")
+            }
+
+            if (state.isVerifying) {
+                CircularProgressIndicator()
+                Text("Checking local access...")
+            }
+
+            state.message?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+
+            state.accessDecision?.let {
+                Spacer(modifier = Modifier.height(6.dp))
+                AccessResultCard(it)
             }
         }
     }

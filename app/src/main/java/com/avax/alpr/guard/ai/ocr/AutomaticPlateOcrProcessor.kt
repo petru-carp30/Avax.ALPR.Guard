@@ -27,6 +27,8 @@ class AutomaticPlateOcrProcessor internal constructor(
     private val _diagnostics = MutableStateFlow(AutomaticPlateOcrDiagnostics())
     val diagnostics: StateFlow<AutomaticPlateOcrDiagnostics> = _diagnostics.asStateFlow()
 
+    fun isProcessing(): Boolean = processing.get()
+
     fun process(frame: CameraFrame, detections: List<PlateDetection>) {
         if (closed.get()) return
 

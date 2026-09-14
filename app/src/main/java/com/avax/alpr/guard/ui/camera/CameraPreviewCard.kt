@@ -9,21 +9,18 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.SystemClock
 import android.provider.Settings
+import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
-import androidx.camera.core.Camera
-import androidx.camera.core.ZoomState
-import androidx.compose.foundation.layout.Row
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.lifecycle.Observer
-import com.avax.alpr.guard.camera.CameraZoomMath
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.camera.core.Camera
+import androidx.camera.core.ZoomState
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -33,9 +30,13 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -49,6 +50,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.Observer
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -56,17 +58,15 @@ import com.avax.alpr.guard.ai.detector.OnnxPlateDetector
 import com.avax.alpr.guard.ai.ocr.AutomaticPlateOcrProcessor
 import com.avax.alpr.guard.ai.ocr.AutomaticPlateRecognition
 import com.avax.alpr.guard.ai.ocr.MlKitPlateOcr
+import com.avax.alpr.guard.camera.CameraFocusAssist
 import com.avax.alpr.guard.camera.CameraPermissionState
 import com.avax.alpr.guard.camera.CameraPermissionStateResolver
 import com.avax.alpr.guard.camera.CameraRuntimeState
 import com.avax.alpr.guard.camera.CameraSession
+import com.avax.alpr.guard.camera.CameraZoomMath
 import com.avax.alpr.guard.camera.DetectorRuntimeState
 import com.avax.alpr.guard.camera.PlateDetectorFrameProcessor
 import com.avax.alpr.guard.domain.AutomaticScanRearmGate
-import android.view.GestureDetector
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.mutableIntStateOf
-import com.avax.alpr.guard.camera.CameraFocusAssist
 import kotlinx.coroutines.delay
 import java.util.Locale
 
@@ -81,9 +81,16 @@ fun CameraPreviewCard(
     var hasRequestedPermission by rememberSaveable { mutableStateOf(false) }
 
     fun resolvePermissionState(): CameraPermissionState {
-        val isGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+        val isGranted = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.CAMERA
+        ) == PackageManager.PERMISSION_GRANTED
+
         val shouldShowRationale = activity?.let {
-            ActivityCompat.shouldShowRequestPermissionRationale(it, Manifest.permission.CAMERA)
+            ActivityCompat.shouldShowRequestPermissionRationale(
+                it,
+                Manifest.permission.CAMERA
+            )
         } == true
 
         return CameraPermissionStateResolver.resolve(
@@ -201,10 +208,15 @@ private fun CameraPreviewContent(
         automaticOcrProcessor.resetConfirmation()
     }
 
-    val frameProcessor = remember(detector, automaticOcrProcessor, automaticScanRearmGate) {
+    val frameProcessor = remember(
+        detector,
+        automaticOcrProcessor,
+        automaticScanRearmGate
+    ) {
         PlateDetectorFrameProcessor(
             detector = detector,
             minInferenceIntervalMs = 0L,
+            shouldProcessFrame = { !automaticOcrProcessor.isProcessing() },
             onDetections = { frame, detections ->
                 automaticScanRearmGate.onDetectorResult(
                     hasPlateDetection = detections.isNotEmpty()
@@ -220,7 +232,9 @@ private fun CameraPreviewContent(
     val diagnostics by frameProcessor.diagnostics.collectAsStateWithLifecycle()
     val ocrDiagnostics by automaticOcrProcessor.diagnostics.collectAsStateWithLifecycle()
 
-    var cameraState by remember { mutableStateOf<CameraRuntimeState>(CameraRuntimeState.Starting) }
+    var cameraState by remember {
+        mutableStateOf<CameraRuntimeState>(CameraRuntimeState.Starting)
+    }
 
     var boundCamera by remember { mutableStateOf<Camera?>(null) }
     var zoomRatio by remember { mutableFloatStateOf(1f) }
@@ -261,11 +275,20 @@ private fun CameraPreviewContent(
         val tapVersionAtSchedule = currentTapFocusVersion.value
         delay(350L)
 
-        if (tapVersionAtSchedule != currentTapFocusVersion.value) return@LaunchedEffect
-        if (currentCameraState.value != CameraRuntimeState.Active) return@LaunchedEffect
+        if (tapVersionAtSchedule != currentTapFocusVersion.value) {
+            return@LaunchedEffect
+        }
+
+        if (currentCameraState.value != CameraRuntimeState.Active) {
+            return@LaunchedEffect
+        }
 
         val camera = currentCamera.value ?: return@LaunchedEffect
-        CameraFocusAssist.requestCenterFocus(camera, previewView)
+
+        CameraFocusAssist.requestCenterFocus(
+            camera = camera,
+            previewView = previewView
+        )
     }
 
     val scaleGestureDetector = remember(context) {
@@ -320,7 +343,12 @@ private fun CameraPreviewContent(
         CameraSession(context.applicationContext)
     }
 
-    DisposableEffect(cameraSession, previewView, lifecycleOwner, detector) {
+    DisposableEffect(
+        cameraSession,
+        previewView,
+        lifecycleOwner,
+        detector
+    ) {
         cameraSession.bind(
             previewView = previewView,
             lifecycleOwner = lifecycleOwner,
@@ -351,7 +379,10 @@ private fun CameraPreviewContent(
                 }
             }
 
-            camera.cameraInfo.zoomState.observe(lifecycleOwner, observer)
+            camera.cameraInfo.zoomState.observe(
+                lifecycleOwner,
+                observer
+            )
 
             onDispose {
                 camera.cameraInfo.zoomState.removeObserver(observer)
@@ -359,7 +390,11 @@ private fun CameraPreviewContent(
         }
     }
 
-    DisposableEffect(previewView, scaleGestureDetector, tapGestureDetector) {
+    DisposableEffect(
+        previewView,
+        scaleGestureDetector,
+        tapGestureDetector
+    ) {
         previewView.setOnTouchListener { _, event ->
             scaleGestureDetector.onTouchEvent(event)
             tapGestureDetector.onTouchEvent(event)
@@ -371,7 +406,9 @@ private fun CameraPreviewContent(
         }
     }
 
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -416,14 +453,21 @@ private fun CameraPreviewContent(
                 }
 
                 androidx.compose.material3.Slider(
-                    value = zoomRatio.coerceIn(minZoomRatio, maxZoomRatio),
+                    value = zoomRatio.coerceIn(
+                        minZoomRatio,
+                        maxZoomRatio
+                    ),
                     onValueChange = { requestZoom(it) },
                     valueRange = minZoomRatio..maxZoomRatio,
                     modifier = Modifier.weight(1f)
                 )
 
                 Text(
-                    text = String.format(Locale.US, "%.1f×", zoomRatio),
+                    text = String.format(
+                        Locale.US,
+                        "%.1f×",
+                        zoomRatio
+                    ),
                     style = MaterialTheme.typography.bodyMedium
                 )
             }
@@ -449,6 +493,41 @@ private fun CameraPreviewContent(
         diagnostics.inferenceTimeMs?.let { inference ->
             Text(
                 text = "Detections: ${diagnostics.detectionCount} | Inference: ${formatMilliseconds(inference)} ms | Total: ${formatMilliseconds(diagnostics.totalProcessingTimeMs ?: 0.0)} ms",
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+
+        diagnostics.preprocessingTimeMs?.let { preprocessing ->
+            Text(
+                text = "Preprocess: ${formatMilliseconds(preprocessing)} ms",
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+
+        diagnostics.yuvConversionTimeMs?.let { yuvConversion ->
+            Text(
+                text = "YUV -> BGR: ${formatMilliseconds(yuvConversion)} ms",
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+
+        diagnostics.rotationTimeMs?.let { rotation ->
+            Text(
+                text = "Rotation: ${formatMilliseconds(rotation)} ms",
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+
+        diagnostics.resizeTensorTimeMs?.let { resizeTensor ->
+            Text(
+                text = "Resize + tensor: ${formatMilliseconds(resizeTensor)} ms",
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+
+        diagnostics.postprocessingTimeMs?.let { postprocessing ->
+            Text(
+                text = "Postprocess: ${formatMilliseconds(postprocessing)} ms",
                 style = MaterialTheme.typography.bodySmall
             )
         }
@@ -488,21 +567,30 @@ private fun CameraPreviewContent(
             )
         }
 
-        if (ocrDiagnostics.detectorBoxWidth != null && ocrDiagnostics.detectorBoxHeight != null) {
+        if (
+            ocrDiagnostics.detectorBoxWidth != null &&
+            ocrDiagnostics.detectorBoxHeight != null
+        ) {
             Text(
                 text = "Detector bbox: ${ocrDiagnostics.detectorBoxWidth} x ${ocrDiagnostics.detectorBoxHeight} px",
                 style = MaterialTheme.typography.bodySmall
             )
         }
 
-        if (ocrDiagnostics.cropWidth != null && ocrDiagnostics.cropHeight != null) {
+        if (
+            ocrDiagnostics.cropWidth != null &&
+            ocrDiagnostics.cropHeight != null
+        ) {
             Text(
                 text = "Crop: ${ocrDiagnostics.cropWidth} x ${ocrDiagnostics.cropHeight} px | Padding: 8%",
                 style = MaterialTheme.typography.bodySmall
             )
         }
 
-        if (ocrDiagnostics.ocrInputWidth != null && ocrDiagnostics.ocrInputHeight != null) {
+        if (
+            ocrDiagnostics.ocrInputWidth != null &&
+            ocrDiagnostics.ocrInputHeight != null
+        ) {
             Text(
                 text = "OCR input: ${ocrDiagnostics.ocrInputWidth} x ${ocrDiagnostics.ocrInputHeight} px | Upscaled: ${if (ocrDiagnostics.wasUpscaled == true) "YES" else "NO"}",
                 style = MaterialTheme.typography.bodySmall
@@ -536,7 +624,11 @@ private fun DetectorRuntimeState.displayName(): String {
 }
 
 private fun formatMilliseconds(value: Double): String {
-    return String.format(Locale.US, "%.1f", value)
+    return String.format(
+        Locale.US,
+        "%.1f",
+        value
+    )
 }
 
 private fun CameraRuntimeState.displayName(): String {
@@ -566,8 +658,14 @@ private tailrec fun Context.findActivity(): Activity? {
 }
 
 private fun Context.openApplicationSettings() {
-    val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-        data = Uri.fromParts("package", packageName, null)
+    val intent = Intent(
+        Settings.ACTION_APPLICATION_DETAILS_SETTINGS
+    ).apply {
+        data = Uri.fromParts(
+            "package",
+            packageName,
+            null
+        )
     }
 
     startActivity(intent)

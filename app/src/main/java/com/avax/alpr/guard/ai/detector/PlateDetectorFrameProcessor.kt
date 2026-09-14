@@ -21,6 +21,9 @@ data class DetectorFrameDiagnostics(
     val detectionCount: Int = 0,
     val modelLoadTimeMs: Double? = null,
     val preprocessingTimeMs: Double? = null,
+    val yuvConversionTimeMs: Double? = null,
+    val rotationTimeMs: Double? = null,
+    val resizeTensorTimeMs: Double? = null,
     val inferenceTimeMs: Double? = null,
     val postprocessingTimeMs: Double? = null,
     val totalProcessingTimeMs: Double? = null,
@@ -32,6 +35,7 @@ data class DetectorFrameDiagnostics(
 class PlateDetectorFrameProcessor(
     private val detector: PlateDetector,
     private val minInferenceIntervalMs: Long = 0L,
+    private val shouldProcessFrame: () -> Boolean = { true },
     private val onDetections: (CameraFrame, List<PlateDetection>) -> Unit = { _, _ -> }
 ) : FrameProcessor {
 
@@ -44,7 +48,6 @@ class PlateDetectorFrameProcessor(
     private var lastInferenceStartNanos: Long? = null
     private var lastSuccessfulCompletionNanos: Long? = null
 
-
     init {
         require(minInferenceIntervalMs >= 0L)
     }
@@ -55,6 +58,14 @@ class PlateDetectorFrameProcessor(
 
         if (disabled) {
             _diagnostics.value = current.copy(frameCount = frameCount)
+            return
+        }
+
+        if (!shouldProcessFrame()) {
+            _diagnostics.value = current.copy(
+                frameCount = frameCount,
+                skippedFrameCount = current.skippedFrameCount + 1
+            )
             return
         }
 
@@ -94,6 +105,9 @@ class PlateDetectorFrameProcessor(
                 detectionCount = result.detections.size,
                 modelLoadTimeMs = result.modelLoadTimeMs,
                 preprocessingTimeMs = result.preprocessingTimeMs,
+                yuvConversionTimeMs = result.yuvConversionTimeMs,
+                rotationTimeMs = result.rotationTimeMs,
+                resizeTensorTimeMs = result.resizeTensorTimeMs,
                 inferenceTimeMs = result.inferenceTimeMs,
                 postprocessingTimeMs = result.postprocessingTimeMs,
                 totalProcessingTimeMs = result.totalProcessingTimeMs,
@@ -101,6 +115,7 @@ class PlateDetectorFrameProcessor(
                 lastDetections = result.detections,
                 frameMetadata = frame.metadata
             )
+
             try {
                 onDetections(frame, result.detections)
             } catch (_: Exception) {

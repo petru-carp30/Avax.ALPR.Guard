@@ -70,6 +70,9 @@ class OnnxPlateDetector(context: Context) : PlateDetector {
                     detections = detections,
                     modelLoadTimeMs = modelLoadTimeMs,
                     preprocessingTimeMs = preprocessingTimeMs,
+                    yuvConversionTimeMs = prepared.yuvConversionTimeMs,
+                    rotationTimeMs = prepared.rotationTimeMs,
+                    resizeTensorTimeMs = prepared.resizeTensorTimeMs,
                     inferenceTimeMs = inferenceTimeMs,
                     postprocessingTimeMs = postprocessingTimeMs,
                     totalProcessingTimeMs = elapsedMilliseconds(totalStart)

@@ -66,14 +66,31 @@ class AutomaticOcrConfirmationGateTest {
     }
 
     @Test
-    fun expiredConfirmationWindowDoesNotConfirmOldCandidates() {
+    fun matchingCandidateAfterSlowOcrStillConfirmsImmediately() {
         var now = 0L
         val gate = AutomaticOcrConfirmationGate(clockMs = { now })
 
-        gate.submit("SV56GOC")
+        gate.submit("B173AVX")
 
-        now = 1_600L
-        val result = gate.submit("SV56GOC")
+        now = 4_500L
+        val result = gate.submit("B173AVX")
+
+        assertTrue(result is AutomaticOcrConfirmationGate.Outcome.Confirmed)
+        assertEquals(
+            "B173AVX",
+            (result as AutomaticOcrConfirmationGate.Outcome.Confirmed).normalizedPlate
+        )
+    }
+
+    @Test
+    fun confirmationWindowStillExpiresAfterMaximumTimeout() {
+        var now = 0L
+        val gate = AutomaticOcrConfirmationGate(clockMs = { now })
+
+        gate.submit("B173AVX")
+
+        now = 6_001L
+        val result = gate.submit("B173AVX")
 
         assertTrue(result is AutomaticOcrConfirmationGate.Outcome.Uncertain)
         assertEquals(

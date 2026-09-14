@@ -3,7 +3,7 @@ package com.avax.alpr.guard.ai.ocr
 internal class AutomaticOcrConfirmationGate(
     private val requiredMatches: Int = 2,
     private val maxCandidates: Int = 3,
-    private val collectionWindowMs: Long = 1_500L,
+    private val collectionWindowMs: Long = 6_000L,
     private val noPlateResetMs: Long = 1_500L,
     private val clockMs: () -> Long
 ) {

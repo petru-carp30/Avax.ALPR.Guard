@@ -14,6 +14,9 @@ data class PlateDetectorResult(
     val detections: List<PlateDetection>,
     val modelLoadTimeMs: Double?,
     val preprocessingTimeMs: Double,
+    val yuvConversionTimeMs: Double,
+    val rotationTimeMs: Double,
+    val resizeTensorTimeMs: Double,
     val inferenceTimeMs: Double,
     val postprocessingTimeMs: Double,
     val totalProcessingTimeMs: Double

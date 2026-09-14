@@ -35,14 +35,16 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import com.avax.alpr.guard.ai.ocr.AutomaticPlateRecognition
+import com.avax.alpr.guard.data.local.AccessLogSyncState
 import com.avax.alpr.guard.domain.model.AccessArea
 import com.avax.alpr.guard.domain.model.AccessDecision
 import com.avax.alpr.guard.domain.model.AccessDecisionStatus
-import com.avax.alpr.guard.data.local.AccessLogSyncState
 import com.avax.alpr.guard.ui.camera.CameraPreviewCard
-import com.avax.alpr.guard.ai.ocr.AutomaticPlateRecognition
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Locale
-
 
 @Composable
 fun GuardScreen(
@@ -73,6 +75,7 @@ fun GuardScreen(
                 onAutomaticRecognition = onAutomaticRecognition,
                 onAutomaticOcrFailure = onAutomaticOcrFailure
             )
+
             AutomaticRecognitionCard(uiState.automaticRecognition)
 
             CacheCard(
@@ -250,10 +253,8 @@ private fun RecentAccessLogsCard(
                 )
             } else {
                 accessLogs.forEachIndexed { index, accessLog ->
-
                     Column(
-                        verticalArrangement =
-                            Arrangement.spacedBy(3.dp)
+                        verticalArrangement = Arrangement.spacedBy(3.dp)
                     ) {
                         Text(
                             text = accessLog.licensePlate,
@@ -262,23 +263,21 @@ private fun RecentAccessLogsCard(
                         )
 
                         Text(
-                            "Time (UTC): ${accessLog.eventTimestampUtc}"
+                            text = "Time: ${formatUtcTimestampForLocalDisplay(accessLog.eventTimestampUtc)}"
                         )
 
                         Text(
-                            "Area: ${accessLog.accessArea.displayName()}"
+                            text = "Area: ${accessLog.accessArea.displayName()}"
                         )
 
                         Text(
-                            text =
-                                "Result: ${accessLog.decisionStatus.displayName()}",
-                            color =
-                                accessLog.decisionStatus.statusColor(),
+                            text = "Result: ${accessLog.decisionStatus.displayName()}",
+                            color = accessLog.decisionStatus.statusColor(),
                             fontWeight = FontWeight.SemiBold
                         )
 
                         Text(
-                            "Sync: ${accessLog.syncState.displayName()}"
+                            text = "Sync: ${accessLog.syncState.displayName()}"
                         )
                     }
 
@@ -435,6 +434,20 @@ private fun AutomaticRecognitionCard(state: AutomaticRecognitionUiState) {
         }
     }
 }
+
+private fun formatUtcTimestampForLocalDisplay(timestampUtc: String): String {
+    return runCatching {
+        val instant = Instant.parse(timestampUtc)
+        LOCAL_DATE_TIME_FORMATTER
+            .withZone(ZoneId.systemDefault())
+            .format(instant)
+    }.getOrElse {
+        timestampUtc
+    }
+}
+
+private val LOCAL_DATE_TIME_FORMATTER: DateTimeFormatter =
+    DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss", Locale.getDefault())
 
 private fun AccessArea.displayName(): String {
     return when (this) {

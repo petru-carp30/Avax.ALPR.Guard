@@ -67,6 +67,7 @@ dependencies {
     implementation(libs.androidx.camera.view)
     implementation(libs.androidx.monitor)
     implementation(libs.onnxruntime.android)
+    implementation("com.google.mlkit:text-recognition:16.0.1")
 
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
@@ -88,5 +89,4 @@ dependencies {
 
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     debugImplementation(libs.androidx.compose.ui.tooling)
-    debugImplementation("com.google.mlkit:text-recognition:16.0.1")
 }

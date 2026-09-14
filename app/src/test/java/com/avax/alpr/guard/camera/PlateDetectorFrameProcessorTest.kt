@@ -40,6 +40,9 @@ class PlateDetectorFrameProcessorTest {
                     detections = emptyList(),
                     modelLoadTimeMs = 10.0,
                     preprocessingTimeMs = 1.0,
+                    yuvConversionTimeMs = 0.4,
+                    rotationTimeMs = 0.2,
+                    resizeTensorTimeMs = 0.4,
                     inferenceTimeMs = 2.0,
                     postprocessingTimeMs = 1.0,
                     totalProcessingTimeMs = 4.0

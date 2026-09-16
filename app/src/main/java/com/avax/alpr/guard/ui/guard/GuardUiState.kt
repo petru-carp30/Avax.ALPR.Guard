@@ -7,8 +7,10 @@ import com.avax.alpr.guard.domain.model.AccessDecisionStatus
 
 data class GuardUiState(
     val plateInput: String = "",
+    val isPlateEditing: Boolean = false,
     val selectedArea: AccessArea = AccessArea.Site,
     val accessDecision: AccessDecision? = null,
+    val operatorResult: AccessDecision? = null,
     val automaticRecognition: AutomaticRecognitionUiState = AutomaticRecognitionUiState(),
     val isVerifying: Boolean = false,
     val isSyncing: Boolean = false,

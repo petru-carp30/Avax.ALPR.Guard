@@ -1,21 +1,21 @@
 package com.avax.alpr.guard.ui.guard
 
 import android.os.SystemClock
-import com.avax.alpr.guard.ai.ocr.AutomaticPlateRecognition
-import com.avax.alpr.guard.domain.PlateNormalizer
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.avax.alpr.guard.ai.ocr.AutomaticPlateRecognition
+import com.avax.alpr.guard.data.local.AccessLogPersistenceStatus
 import com.avax.alpr.guard.data.repository.SyncResult
 import com.avax.alpr.guard.data.repository.VehicleAccessRepository
 import com.avax.alpr.guard.data.repository.VehicleSyncRepository
+import com.avax.alpr.guard.domain.PlateNormalizer
 import com.avax.alpr.guard.domain.model.AccessArea
 import java.util.concurrent.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import com.avax.alpr.guard.data.local.AccessLogPersistenceStatus
 
 class GuardViewModel(
     private val vehicleAccessRepository: VehicleAccessRepository,
@@ -35,16 +35,36 @@ class GuardViewModel(
     fun onPlateChanged(value: String) {
         _uiState.value = _uiState.value.copy(
             plateInput = value,
+            isPlateEditing = true,
             accessDecision = null,
+            operatorResult = null,
             localLogMessage = null
         )
     }
 
-    fun onAreaSelected(area: AccessArea) {
+    fun onPlateEditingChanged(isEditing: Boolean) {
         _uiState.value = _uiState.value.copy(
+            isPlateEditing = isEditing
+        )
+    }
+
+    fun onAreaSelected(area: AccessArea) {
+        val state = _uiState.value
+
+        val currentPlate = state.plateInput.ifBlank {
+            state.operatorResult?.normalizedLicensePlate
+                ?: state.automaticRecognition.normalizedPlate
+                ?: state.automaticRecognition.ocrText
+                ?: ""
+        }
+
+        _uiState.value = state.copy(
+            plateInput = currentPlate,
+            isPlateEditing = false,
             selectedArea = area,
             accessDecision = null,
-            automaticRecognition = _uiState.value.automaticRecognition.copy(
+            operatorResult = null,
+            automaticRecognition = state.automaticRecognition.copy(
                 accessDecision = null,
                 message = null
             ),
@@ -61,28 +81,28 @@ class GuardViewModel(
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(
                 isVerifying = true,
+                isPlateEditing = false,
+                operatorResult = null,
                 localLogMessage = null
             )
 
             try {
-                val verification =
-                    vehicleAccessRepository.verify(
-                        inputPlate = plate,
-                        requestedArea = area
-                    )
+                val verification = vehicleAccessRepository.verify(
+                    inputPlate = plate,
+                    requestedArea = area
+                )
 
-                val logMessage =
-                    if (
-                        verification.logPersistenceStatus ==
-                        AccessLogPersistenceStatus.Failed
-                    ) {
-                        "Access decision completed, but the local access event could not be saved."
-                    } else {
-                        null
-                    }
+                val logMessage = if (
+                    verification.logPersistenceStatus == AccessLogPersistenceStatus.Failed
+                ) {
+                    "Access decision completed, but the local access event could not be saved."
+                } else {
+                    null
+                }
 
                 _uiState.value = _uiState.value.copy(
                     accessDecision = verification.decision,
+                    operatorResult = verification.decision,
                     isVerifying = false,
                     localLogMessage = logMessage
                 )
@@ -91,11 +111,35 @@ class GuardViewModel(
             } catch (_: Exception) {
                 _uiState.value = _uiState.value.copy(
                     accessDecision = null,
+                    operatorResult = null,
                     isVerifying = false,
                     syncMessage = "Local verification failed."
                 )
             }
         }
+    }
+
+    fun editPlateFromResult() {
+        val state = _uiState.value
+        val fallbackPlate = state.operatorResult?.normalizedLicensePlate.orEmpty()
+
+        _uiState.value = state.copy(
+            plateInput = state.plateInput.ifBlank { fallbackPlate },
+            isPlateEditing = true,
+            operatorResult = null,
+            accessDecision = null,
+            localLogMessage = null
+        )
+    }
+
+    fun continueScanning() {
+        _uiState.value = _uiState.value.copy(
+            plateInput = "",
+            isPlateEditing = false,
+            accessDecision = null,
+            operatorResult = null,
+            localLogMessage = null
+        )
     }
 
     fun synchronizeVehicles() {
@@ -142,27 +186,22 @@ class GuardViewModel(
 
     private fun observeRecentAccessLogs() {
         viewModelScope.launch {
-            vehicleAccessRepository
-                .observeRecentAccessLogs()
-                .collect { accessLogs ->
-
-                    val recentLogs = accessLogs.map { accessLog ->
-                        RecentAccessLogUiItem(
-                            localLogId = accessLog.localLogId,
-                            eventTimestampUtc = accessLog.eventTimestampUtc,
-                            licensePlate =
-                                accessLog.normalizedLicensePlate
-                                    ?: accessLog.inputLicensePlate,
-                            accessArea = accessLog.accessArea,
-                            decisionStatus = accessLog.decisionStatus,
-                            syncState = accessLog.syncState
-                        )
-                    }
-
-                    _uiState.value = _uiState.value.copy(
-                        recentAccessLogs = recentLogs
+            vehicleAccessRepository.observeRecentAccessLogs().collect { accessLogs ->
+                val recentLogs = accessLogs.map { accessLog ->
+                    RecentAccessLogUiItem(
+                        localLogId = accessLog.localLogId,
+                        eventTimestampUtc = accessLog.eventTimestampUtc,
+                        licensePlate = accessLog.normalizedLicensePlate ?: accessLog.inputLicensePlate,
+                        accessArea = accessLog.accessArea,
+                        decisionStatus = accessLog.decisionStatus,
+                        syncState = accessLog.syncState
                     )
                 }
+
+                _uiState.value = _uiState.value.copy(
+                    recentAccessLogs = recentLogs
+                )
+            }
         }
     }
 
@@ -189,8 +228,11 @@ class GuardViewModel(
             val nowMs = SystemClock.elapsedRealtime()
 
             if (automaticVerificationCooldown.shouldSuppress(normalizedPlate, nowMs)) {
-                _uiState.value = _uiState.value.copy(
-                    automaticRecognition = _uiState.value.automaticRecognition.copy(
+                val state = _uiState.value
+
+                _uiState.value = state.copy(
+                    plateInput = if (state.isPlateEditing) state.plateInput else ocrResult.text,
+                    automaticRecognition = state.automaticRecognition.copy(
                         ocrText = ocrResult.text,
                         normalizedPlate = normalizedPlate,
                         detectorConfidence = recognition.detectorConfidence,
@@ -202,9 +244,11 @@ class GuardViewModel(
                 return@launch
             }
 
-            val area = _uiState.value.selectedArea
+            val state = _uiState.value
+            val area = state.selectedArea
 
-            _uiState.value = _uiState.value.copy(
+            _uiState.value = state.copy(
+                plateInput = if (state.isPlateEditing) state.plateInput else ocrResult.text,
                 automaticRecognition = AutomaticRecognitionUiState(
                     ocrText = ocrResult.text,
                     normalizedPlate = normalizedPlate,
@@ -229,11 +273,14 @@ class GuardViewModel(
                 }
 
                 val message = when (verification.logPersistenceStatus) {
-                    AccessLogPersistenceStatus.Failed -> "Access result completed, but the local access event could not be saved."
+                    AccessLogPersistenceStatus.Failed ->
+                        "Access result completed, but the local access event could not be saved."
+
                     else -> null
                 }
 
                 _uiState.value = _uiState.value.copy(
+                    operatorResult = verification.decision,
                     automaticRecognition = AutomaticRecognitionUiState(
                         ocrText = ocrResult.text,
                         normalizedPlate = normalizedPlate,

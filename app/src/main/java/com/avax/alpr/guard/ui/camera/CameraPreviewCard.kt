@@ -25,9 +25,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -44,7 +47,18 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
+import kotlin.math.exp
+import kotlin.math.ln
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.app.ActivityCompat
@@ -67,14 +81,23 @@ import com.avax.alpr.guard.camera.CameraZoomMath
 import com.avax.alpr.guard.camera.DetectorRuntimeState
 import com.avax.alpr.guard.camera.PlateDetectorFrameProcessor
 import com.avax.alpr.guard.domain.AutomaticScanRearmGate
-import kotlinx.coroutines.delay
+import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.layout.size
 import java.util.Locale
+import kotlinx.coroutines.delay
 
 @Composable
 fun CameraPreviewCard(
     onAutomaticRecognition: (AutomaticPlateRecognition) -> Unit,
     onAutomaticOcrFailure: (String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    showHeader: Boolean = true,
+    showDiagnostics: Boolean = true,
+    previewHeight: Dp = 360.dp,
+    contentPadding: Dp = 16.dp,
+    fullscreenPreview: Boolean = false,
+    verticalZoomControls: Boolean = false,
+    showContainer: Boolean = true
 ) {
     val context = LocalContext.current
     val activity = context.findActivity()
@@ -113,55 +136,116 @@ fun CameraPreviewCard(
         permissionState = resolvePermissionState()
     }
 
-    Card(modifier = modifier.fillMaxWidth()) {
+    val content: @Composable () -> Unit = {
         Column(
-            modifier = Modifier.padding(16.dp),
+            modifier = if (fullscreenPreview) {
+                Modifier
+                    .fillMaxSize()
+                    .padding(contentPadding)
+            } else {
+                Modifier.padding(contentPadding)
+            },
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text(
-                text = "Camera",
-                style = MaterialTheme.typography.titleLarge
-            )
+            if (showHeader) {
+                Text(
+                    text = "Camera",
+                    style = MaterialTheme.typography.titleLarge
+                )
+            }
 
             when (permissionState) {
                 CameraPermissionState.NotRequested -> {
-                    Text("Camera permission is required for live plate scanning. Manual verification remains available.")
-
-                    Button(
-                        onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Enable camera")
-                    }
+                    CameraPermissionMessage(
+                        message = "Camera permission is required for live plate scanning. Manual verification remains available.",
+                        buttonText = "Enable camera",
+                        onClick = {
+                            permissionLauncher.launch(Manifest.permission.CAMERA)
+                        },
+                        fullscreen = fullscreenPreview
+                    )
                 }
 
                 CameraPermissionState.Granted -> {
                     CameraPreviewContent(
                         onAutomaticRecognition = onAutomaticRecognition,
-                        onAutomaticOcrFailure = onAutomaticOcrFailure
+                        onAutomaticOcrFailure = onAutomaticOcrFailure,
+                        showDiagnostics = showDiagnostics,
+                        previewHeight = previewHeight,
+                        fullscreenPreview = fullscreenPreview,
+                        verticalZoomControls = verticalZoomControls
                     )
                 }
 
                 CameraPermissionState.Denied -> {
-                    Text("Camera permission was denied. You can retry or continue using manual verification.")
-
-                    Button(
-                        onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Retry camera permission")
-                    }
+                    CameraPermissionMessage(
+                        message = "Camera permission was denied. You can retry or continue using manual verification.",
+                        buttonText = "Retry camera permission",
+                        onClick = {
+                            permissionLauncher.launch(Manifest.permission.CAMERA)
+                        },
+                        fullscreen = fullscreenPreview
+                    )
                 }
 
                 CameraPermissionState.PermanentlyDenied -> {
-                    Text("Camera permission must be enabled from Android settings. Manual verification remains available.")
+                    CameraPermissionMessage(
+                        message = "Camera permission must be enabled from Android settings. Manual verification remains available.",
+                        buttonText = "Open settings",
+                        onClick = {
+                            context.openApplicationSettings()
+                        },
+                        fullscreen = fullscreenPreview
+                    )
+                }
+            }
+        }
+    }
 
-                    Button(
-                        onClick = { context.openApplicationSettings() },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Open settings")
-                    }
+    if (showContainer) {
+        Card(modifier = modifier.fillMaxWidth()) {
+            content()
+        }
+    } else {
+        Box(modifier = modifier) {
+            content()
+        }
+    }
+}
+
+@Composable
+private fun CameraPermissionMessage(
+    message: String,
+    buttonText: String,
+    onClick: () -> Unit,
+    fullscreen: Boolean
+) {
+    Column(
+        modifier = if (fullscreen) {
+            Modifier
+                .fillMaxSize()
+                .padding(24.dp)
+        } else {
+            Modifier.fillMaxWidth()
+        },
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            tonalElevation = 6.dp
+        ) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(message)
+
+                Button(
+                    onClick = onClick,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(buttonText)
                 }
             }
         }
@@ -171,7 +255,11 @@ fun CameraPreviewCard(
 @Composable
 private fun CameraPreviewContent(
     onAutomaticRecognition: (AutomaticPlateRecognition) -> Unit,
-    onAutomaticOcrFailure: (String) -> Unit
+    onAutomaticOcrFailure: (String) -> Unit,
+    showDiagnostics: Boolean,
+    previewHeight: Dp,
+    fullscreenPreview: Boolean,
+    verticalZoomControls: Boolean
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -179,8 +267,13 @@ private fun CameraPreviewContent(
     val currentOnAutomaticRecognition by rememberUpdatedState(onAutomaticRecognition)
     val currentOnAutomaticOcrFailure by rememberUpdatedState(onAutomaticOcrFailure)
 
-    val detector = remember { OnnxPlateDetector(context.applicationContext) }
-    val plateOcr = remember { MlKitPlateOcr() }
+    val detector = remember {
+        OnnxPlateDetector(context.applicationContext)
+    }
+
+    val plateOcr = remember {
+        MlKitPlateOcr()
+    }
 
     val automaticScanRearmGate = remember {
         AutomaticScanRearmGate(
@@ -189,7 +282,10 @@ private fun CameraPreviewContent(
         )
     }
 
-    val automaticOcrProcessor = remember(plateOcr, automaticScanRearmGate) {
+    val automaticOcrProcessor = remember(
+        plateOcr,
+        automaticScanRearmGate
+    ) {
         AutomaticPlateOcrProcessor(
             plateOcr = plateOcr,
             onRecognition = { recognition ->
@@ -216,14 +312,19 @@ private fun CameraPreviewContent(
         PlateDetectorFrameProcessor(
             detector = detector,
             minInferenceIntervalMs = 0L,
-            shouldProcessFrame = { !automaticOcrProcessor.isProcessing() },
+            shouldProcessFrame = {
+                !automaticOcrProcessor.isProcessing()
+            },
             onDetections = { frame, detections ->
                 automaticScanRearmGate.onDetectorResult(
                     hasPlateDetection = detections.isNotEmpty()
                 )
 
                 if (!automaticScanRearmGate.isLocked()) {
-                    automaticOcrProcessor.process(frame, detections)
+                    automaticOcrProcessor.process(
+                        frame,
+                        detections
+                    )
                 }
             }
         )
@@ -233,15 +334,34 @@ private fun CameraPreviewContent(
     val ocrDiagnostics by automaticOcrProcessor.diagnostics.collectAsStateWithLifecycle()
 
     var cameraState by remember {
-        mutableStateOf<CameraRuntimeState>(CameraRuntimeState.Starting)
+        mutableStateOf<CameraRuntimeState>(
+            CameraRuntimeState.Starting
+        )
     }
 
-    var boundCamera by remember { mutableStateOf<Camera?>(null) }
-    var zoomRatio by remember { mutableFloatStateOf(1f) }
-    var minZoomRatio by remember { mutableFloatStateOf(1f) }
-    var maxZoomRatio by remember { mutableFloatStateOf(1f) }
-    var zoomFocusRequestVersion by remember { mutableIntStateOf(0) }
-    var tapFocusVersion by remember { mutableIntStateOf(0) }
+    var boundCamera by remember {
+        mutableStateOf<Camera?>(null)
+    }
+
+    var zoomRatio by remember {
+        mutableFloatStateOf(1f)
+    }
+
+    var minZoomRatio by remember {
+        mutableFloatStateOf(1f)
+    }
+
+    var maxZoomRatio by remember {
+        mutableFloatStateOf(1f)
+    }
+
+    var zoomFocusRequestVersion by remember {
+        mutableIntStateOf(0)
+    }
+
+    var tapFocusVersion by remember {
+        mutableIntStateOf(0)
+    }
 
     val previewView = remember {
         PreviewView(context).apply {
@@ -270,9 +390,12 @@ private fun CameraPreviewContent(
     val currentTapFocusVersion = rememberUpdatedState(tapFocusVersion)
 
     LaunchedEffect(zoomFocusRequestVersion) {
-        if (zoomFocusRequestVersion == 0) return@LaunchedEffect
+        if (zoomFocusRequestVersion == 0) {
+            return@LaunchedEffect
+        }
 
         val tapVersionAtSchedule = currentTapFocusVersion.value
+
         delay(350L)
 
         if (tapVersionAtSchedule != currentTapFocusVersion.value) {
@@ -308,13 +431,17 @@ private fun CameraPreviewContent(
 
                     camera.cameraControl.setZoomRatio(requestedZoom)
                     zoomFocusRequestVersion++
+
                     return true
                 }
             }
         )
     }
 
-    val tapGestureDetector = remember(context, previewView) {
+    val tapGestureDetector = remember(
+        context,
+        previewView
+    ) {
         GestureDetector(
             context,
             object : GestureDetector.SimpleOnGestureListener() {
@@ -353,8 +480,12 @@ private fun CameraPreviewContent(
             previewView = previewView,
             lifecycleOwner = lifecycleOwner,
             frameProcessor = frameProcessor,
-            onStateChanged = { cameraState = it },
-            onCameraBound = { boundCamera = it }
+            onStateChanged = {
+                cameraState = it
+            },
+            onCameraBound = {
+                boundCamera = it
+            }
         )
 
         onDispose {
@@ -365,18 +496,19 @@ private fun CameraPreviewContent(
         }
     }
 
-    DisposableEffect(boundCamera, lifecycleOwner) {
+    DisposableEffect(
+        boundCamera,
+        lifecycleOwner
+    ) {
         val camera = boundCamera
 
         if (camera == null) {
             onDispose { }
         } else {
             val observer = Observer<ZoomState> { state ->
-                if (state != null) {
-                    zoomRatio = state.zoomRatio
-                    minZoomRatio = state.minZoomRatio
-                    maxZoomRatio = state.maxZoomRatio
-                }
+                zoomRatio = state.zoomRatio
+                minZoomRatio = state.minZoomRatio
+                maxZoomRatio = state.maxZoomRatio
             }
 
             camera.cameraInfo.zoomState.observe(
@@ -407,15 +539,26 @@ private fun CameraPreviewContent(
     }
 
     Column(
+        modifier = if (fullscreenPreview) {
+            Modifier.fillMaxSize()
+        } else {
+            Modifier
+        },
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(360.dp)
+            modifier = if (fullscreenPreview) {
+                Modifier.fillMaxSize()
+            } else {
+                Modifier
+                    .fillMaxWidth()
+                    .height(previewHeight)
+            }
         ) {
             AndroidView(
-                factory = { previewView },
+                factory = {
+                    previewView
+                },
                 modifier = Modifier.fillMaxSize()
             )
 
@@ -430,7 +573,8 @@ private fun CameraPreviewContent(
                     modifier = Modifier
                         .align(Alignment.Center)
                         .padding(16.dp),
-                    tonalElevation = 6.dp
+                    tonalElevation = 6.dp,
+                    shape = RoundedCornerShape(18.dp)
                 ) {
                     Text(
                         text = cameraState.displayMessage(),
@@ -438,26 +582,55 @@ private fun CameraPreviewContent(
                     )
                 }
             }
+
+            if (
+                verticalZoomControls &&
+                maxZoomRatio > minZoomRatio
+            ) {
+                VerticalZoomControl(
+                    zoomRatio = zoomRatio,
+                    minZoomRatio = minZoomRatio,
+                    maxZoomRatio = maxZoomRatio,
+                    onZoomChanged = {
+                        requestZoom(it)
+                    },
+                    onReset = {
+                        requestZoom(1f)
+                    },
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(end = 10.dp)
+                        .offset(y = (-45).dp)
+                )
+            }
         }
 
-        if (maxZoomRatio > minZoomRatio) {
+        if (
+            !fullscreenPreview &&
+            !verticalZoomControls &&
+            maxZoomRatio > minZoomRatio
+        ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 TextButton(
-                    onClick = { requestZoom(1f) }
+                    onClick = {
+                        requestZoom(1f)
+                    }
                 ) {
                     Text("1×")
                 }
 
-                androidx.compose.material3.Slider(
+                Slider(
                     value = zoomRatio.coerceIn(
                         minZoomRatio,
                         maxZoomRatio
                     ),
-                    onValueChange = { requestZoom(it) },
+                    onValueChange = {
+                        requestZoom(it)
+                    },
                     valueRange = minZoomRatio..maxZoomRatio,
                     modifier = Modifier.weight(1f)
                 )
@@ -473,144 +646,290 @@ private fun CameraPreviewContent(
             }
         }
 
-        Text(
-            text = "Camera: ${cameraState.displayName()}",
-            style = MaterialTheme.typography.bodySmall
-        )
-
-        Text(
-            text = "Detector: ${diagnostics.runtimeState.displayName()}",
-            style = MaterialTheme.typography.bodySmall
-        )
-
-        diagnostics.modelLoadTimeMs?.let {
+        if (showDiagnostics) {
             Text(
-                text = "Model load: ${formatMilliseconds(it)} ms",
+                text = "Camera: ${cameraState.displayName()}",
                 style = MaterialTheme.typography.bodySmall
             )
-        }
 
-        diagnostics.inferenceTimeMs?.let { inference ->
             Text(
-                text = "Detections: ${diagnostics.detectionCount} | Inference: ${formatMilliseconds(inference)} ms | Total: ${formatMilliseconds(diagnostics.totalProcessingTimeMs ?: 0.0)} ms",
+                text = "Detector: ${diagnostics.runtimeState.displayName()}",
                 style = MaterialTheme.typography.bodySmall
             )
-        }
 
-        diagnostics.preprocessingTimeMs?.let { preprocessing ->
-            Text(
-                text = "Preprocess: ${formatMilliseconds(preprocessing)} ms",
-                style = MaterialTheme.typography.bodySmall
-            )
-        }
+            diagnostics.modelLoadTimeMs?.let { modelLoadTime ->
+                Text(
+                    text = "Model load: ${formatMilliseconds(modelLoadTime)} ms",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
 
-        diagnostics.yuvConversionTimeMs?.let { yuvConversion ->
-            Text(
-                text = "YUV -> BGR: ${formatMilliseconds(yuvConversion)} ms",
-                style = MaterialTheme.typography.bodySmall
-            )
-        }
+            diagnostics.inferenceTimeMs?.let { inference ->
+                Text(
+                    text = "Detections: ${diagnostics.detectionCount} | Inference: ${formatMilliseconds(inference)} ms | Total: ${formatMilliseconds(diagnostics.totalProcessingTimeMs ?: 0.0)} ms",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
 
-        diagnostics.rotationTimeMs?.let { rotation ->
-            Text(
-                text = "Rotation: ${formatMilliseconds(rotation)} ms",
-                style = MaterialTheme.typography.bodySmall
-            )
-        }
+            diagnostics.preprocessingTimeMs?.let { preprocessing ->
+                Text(
+                    text = "Preprocess: ${formatMilliseconds(preprocessing)} ms",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
 
-        diagnostics.resizeTensorTimeMs?.let { resizeTensor ->
-            Text(
-                text = "Resize + tensor: ${formatMilliseconds(resizeTensor)} ms",
-                style = MaterialTheme.typography.bodySmall
-            )
-        }
+            diagnostics.yuvConversionTimeMs?.let { yuvConversion ->
+                Text(
+                    text = "YUV -> BGR: ${formatMilliseconds(yuvConversion)} ms",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
 
-        diagnostics.postprocessingTimeMs?.let { postprocessing ->
-            Text(
-                text = "Postprocess: ${formatMilliseconds(postprocessing)} ms",
-                style = MaterialTheme.typography.bodySmall
-            )
-        }
+            diagnostics.rotationTimeMs?.let { rotation ->
+                Text(
+                    text = "Rotation: ${formatMilliseconds(rotation)} ms",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
 
-        diagnostics.cadenceFps?.let {
-            Text(
-                text = "Detector cadence: ${String.format(Locale.US, "%.1f", it)} fps",
-                style = MaterialTheme.typography.bodySmall
-            )
-        }
+            diagnostics.resizeTensorTimeMs?.let { resizeTensor ->
+                Text(
+                    text = "Resize + tensor: ${formatMilliseconds(resizeTensor)} ms",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
 
-        ocrDiagnostics.recognizedText?.let { text ->
-            Text(
-                text = "OCR plate: $text",
-                style = MaterialTheme.typography.bodyMedium
-            )
-        }
+            diagnostics.postprocessingTimeMs?.let { postprocessing ->
+                Text(
+                    text = "Postprocess: ${formatMilliseconds(postprocessing)} ms",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
 
-        ocrDiagnostics.ocrLatencyMs?.let { latency ->
-            Text(
-                text = "OCR latency: ${formatMilliseconds(latency)} ms",
-                style = MaterialTheme.typography.bodySmall
-            )
-        }
+            diagnostics.cadenceFps?.let { cadence ->
+                Text(
+                    text = "Detector cadence: ${String.format(Locale.US, "%.1f", cadence)} fps",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
 
-        ocrDiagnostics.detectorConfidence?.let { confidence ->
-            Text(
-                text = "Detector confidence: ${String.format(Locale.US, "%.3f", confidence)}",
-                style = MaterialTheme.typography.bodySmall
-            )
-        }
+            ocrDiagnostics.recognizedText?.let { text ->
+                Text(
+                    text = "OCR plate: $text",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
 
-        ocrDiagnostics.ocrConfidence?.let { confidence ->
-            Text(
-                text = "OCR confidence: ${String.format(Locale.US, "%.3f", confidence)}",
-                style = MaterialTheme.typography.bodySmall
-            )
-        }
+            ocrDiagnostics.ocrLatencyMs?.let { latency ->
+                Text(
+                    text = "OCR latency: ${formatMilliseconds(latency)} ms",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
 
-        if (
-            ocrDiagnostics.detectorBoxWidth != null &&
-            ocrDiagnostics.detectorBoxHeight != null
+            ocrDiagnostics.detectorConfidence?.let { confidence ->
+                Text(
+                    text = "Detector confidence: ${String.format(Locale.US, "%.3f", confidence)}",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+
+            ocrDiagnostics.ocrConfidence?.let { confidence ->
+                Text(
+                    text = "OCR confidence: ${String.format(Locale.US, "%.3f", confidence)}",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+
+            if (
+                ocrDiagnostics.detectorBoxWidth != null &&
+                ocrDiagnostics.detectorBoxHeight != null
+            ) {
+                Text(
+                    text = "Detector bbox: ${ocrDiagnostics.detectorBoxWidth} x ${ocrDiagnostics.detectorBoxHeight} px",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+
+            if (
+                ocrDiagnostics.cropWidth != null &&
+                ocrDiagnostics.cropHeight != null
+            ) {
+                Text(
+                    text = "Crop: ${ocrDiagnostics.cropWidth} x ${ocrDiagnostics.cropHeight} px | Padding: 8%",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+
+            if (
+                ocrDiagnostics.ocrInputWidth != null &&
+                ocrDiagnostics.ocrInputHeight != null
+            ) {
+                Text(
+                    text = "OCR input: ${ocrDiagnostics.ocrInputWidth} x ${ocrDiagnostics.ocrInputHeight} px | Upscaled: ${if (ocrDiagnostics.wasUpscaled == true) "YES" else "NO"}",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+
+            ocrDiagnostics.message?.let { message ->
+                Text(
+                    text = "OCR: $message",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+
+            val detectorState = diagnostics.runtimeState
+
+            if (detectorState is DetectorRuntimeState.Unavailable) {
+                Text(
+                    text = "Detector unavailable: ${detectorState.reason}. Manual verification remains available.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun VerticalZoomControl(
+    zoomRatio: Float,
+    minZoomRatio: Float,
+    maxZoomRatio: Float,
+    onZoomChanged: (Float) -> Unit,
+    onReset: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val effectiveMin = maxOf(1f, minZoomRatio)
+    val effectiveMax = maxOf(effectiveMin, maxZoomRatio)
+
+    fun zoomToFraction(zoom: Float): Float {
+        if (effectiveMax <= effectiveMin) return 0f
+
+        val safeZoom = zoom.coerceIn(effectiveMin, effectiveMax)
+        return (
+                ln(safeZoom / effectiveMin) /
+                        ln(effectiveMax / effectiveMin)
+                ).coerceIn(0f, 1f)
+    }
+
+    fun fractionToZoom(fraction: Float): Float {
+        if (effectiveMax <= effectiveMin) return effectiveMin
+
+        val safeFraction = fraction.coerceIn(0f, 1f)
+        return (
+                effectiveMin *
+                        exp(
+                            ln(effectiveMax / effectiveMin) *
+                                    safeFraction
+                        )
+                ).coerceIn(effectiveMin, effectiveMax)
+    }
+
+    Surface(
+        modifier = modifier.width(64.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.76f),
+        shape = RoundedCornerShape(28.dp),
+        tonalElevation = 6.dp
+    ) {
+        Column(
+            modifier = Modifier.padding(
+                horizontal = 8.dp,
+                vertical = 12.dp
+            ),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Text(
-                text = "Detector bbox: ${ocrDiagnostics.detectorBoxWidth} x ${ocrDiagnostics.detectorBoxHeight} px",
-                style = MaterialTheme.typography.bodySmall
+                text = String.format(
+                    Locale.US,
+                    "%.1f×",
+                    zoomRatio
+                ),
+                color = Color.White,
+                style = MaterialTheme.typography.labelLarge
             )
-        }
 
-        if (
-            ocrDiagnostics.cropWidth != null &&
-            ocrDiagnostics.cropHeight != null
-        ) {
-            Text(
-                text = "Crop: ${ocrDiagnostics.cropWidth} x ${ocrDiagnostics.cropHeight} px | Padding: 8%",
-                style = MaterialTheme.typography.bodySmall
-            )
-        }
+            BoxWithConstraints(
+                modifier = Modifier
+                    .width(48.dp)
+                    .height(360.dp)
+                    .pointerInput(
+                        effectiveMin,
+                        effectiveMax
+                    ) {
+                        awaitEachGesture {
+                            val down = awaitFirstDown()
 
-        if (
-            ocrDiagnostics.ocrInputWidth != null &&
-            ocrDiagnostics.ocrInputHeight != null
-        ) {
-            Text(
-                text = "OCR input: ${ocrDiagnostics.ocrInputWidth} x ${ocrDiagnostics.ocrInputHeight} px | Upscaled: ${if (ocrDiagnostics.wasUpscaled == true) "YES" else "NO"}",
-                style = MaterialTheme.typography.bodySmall
-            )
-        }
+                            fun updateZoom(y: Float) {
+                                val fraction =
+                                    1f - (y / size.height.toFloat())
 
-        ocrDiagnostics.message?.let { message ->
-            Text(
-                text = "OCR: $message",
-                style = MaterialTheme.typography.bodySmall
-            )
-        }
+                                onZoomChanged(
+                                    fractionToZoom(fraction)
+                                )
+                            }
 
-        val detectorState = diagnostics.runtimeState
+                            updateZoom(down.position.y)
 
-        if (detectorState is DetectorRuntimeState.Unavailable) {
-            Text(
-                text = "Detector unavailable: ${detectorState.reason}. Manual verification remains available.",
-                style = MaterialTheme.typography.bodySmall
-            )
+                            var pressed = true
+
+                            while (pressed) {
+                                val event = awaitPointerEvent()
+                                val change = event.changes.firstOrNull {
+                                    it.id == down.id
+                                } ?: break
+
+                                updateZoom(change.position.y)
+                                change.consume()
+
+                                pressed = change.pressed
+                            }
+                        }
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(5.dp)
+                        .fillMaxSize()
+                        .align(Alignment.Center)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .width(5.dp)
+                            .fillMaxSize()
+                            .align(Alignment.Center)
+                            .clip(CircleShape)
+                            .background(
+                                MaterialTheme.colorScheme.outline.copy(
+                                    alpha = 0.65f
+                                )
+                            )
+                    )
+                }
+
+                val fraction = zoomToFraction(zoomRatio)
+                val thumbTravel = maxHeight - 26.dp
+
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .offset(
+                            y = -(thumbTravel * fraction)
+                        )
+                        .size(26.dp)
+                        .clip(CircleShape)
+                        .background(
+                            MaterialTheme.colorScheme.primary
+                        )
+                )
+            }
+
+            TextButton(
+                onClick = onReset
+            ) {
+                Text("1×")
+            }
         }
     }
 }
@@ -644,8 +963,11 @@ private fun CameraRuntimeState.displayMessage(): String {
     return when (this) {
         CameraRuntimeState.Starting -> "Starting camera..."
         CameraRuntimeState.Active -> ""
-        CameraRuntimeState.Unavailable -> "Rear camera is unavailable. Manual verification remains available."
-        CameraRuntimeState.Error -> "Camera could not be started. Manual verification remains available."
+        CameraRuntimeState.Unavailable ->
+            "Rear camera is unavailable. Manual verification remains available."
+
+        CameraRuntimeState.Error ->
+            "Camera could not be started. Manual verification remains available."
     }
 }
 

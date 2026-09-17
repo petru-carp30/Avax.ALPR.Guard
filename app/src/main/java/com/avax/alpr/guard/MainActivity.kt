@@ -5,8 +5,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -24,30 +22,50 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             AvaxALPRGuardTheme {
-                val container = (application as GuardApplication).container
+                val container =
+                    (application as GuardApplication).container
 
                 val factory = remember {
                     GuardViewModel.Factory(
-                        vehicleAccessRepository = container.vehicleAccessRepository,
-                        vehicleSyncRepository = container.vehicleSyncRepository
+                        vehicleAccessRepository =
+                            container.vehicleAccessRepository,
+                        vehicleSyncRepository =
+                            container.vehicleSyncRepository
                     )
                 }
 
-                val guardViewModel: GuardViewModel = viewModel(factory = factory)
-                val uiState by guardViewModel.uiState.collectAsStateWithLifecycle()
-
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    GuardScreen(
-                        uiState = uiState,
-                        onPlateChanged = guardViewModel::onPlateChanged,
-                        onAreaSelected = guardViewModel::onAreaSelected,
-                        onVerify = guardViewModel::verifyLocally,
-                        onSynchronize = guardViewModel::synchronizeVehicles,
-                        onAutomaticRecognition = guardViewModel::onAutomaticPlateRecognized,
-                        onAutomaticOcrFailure = guardViewModel::onAutomaticOcrFailure,
-                        modifier = Modifier.padding(innerPadding)
+                val guardViewModel: GuardViewModel =
+                    viewModel(
+                        factory = factory
                     )
-                }
+
+                val uiState by
+                guardViewModel.uiState.collectAsStateWithLifecycle()
+
+                GuardScreen(
+                    uiState = uiState,
+                    onPlateChanged =
+                        guardViewModel::onPlateChanged,
+                    onPlateEditingChanged =
+                        guardViewModel::onPlateEditingChanged,
+                    onAreaSelected =
+                        guardViewModel::onAreaSelected,
+                    onVerify =
+                        guardViewModel::verifyLocally,
+                    onEditPlate =
+                        guardViewModel::editPlateFromResult,
+                    onContinue =
+                        guardViewModel::continueScanning,
+                    onSynchronize =
+                        guardViewModel::synchronizeVehicles,
+                    onAutomaticRecognition =
+                        guardViewModel::onAutomaticPlateRecognized,
+                    onAutomaticOcrFailure =
+                        guardViewModel::onAutomaticOcrFailure,
+                    developerViewAvailable =
+                        BuildConfig.DEBUG,
+                    modifier = Modifier.fillMaxSize()
+                )
             }
         }
     }
